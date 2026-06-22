@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/browserPolyfills";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {

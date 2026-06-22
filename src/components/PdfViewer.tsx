@@ -13,6 +13,8 @@ import { MAX_ZOOM, MIN_ZOOM } from "@/lib/constants";
 
 const AnnotationLayer = dynamic(() => import("./AnnotationLayer"), { ssr: false });
 
+configurePdfWorker();
+
 interface PdfViewerProps {
   book: BookRecord | null;
   annotations: Annotation[];
@@ -54,6 +56,7 @@ export default function PdfViewer({
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     configurePdfWorker();
@@ -64,6 +67,7 @@ export default function PdfViewer({
       setObjectUrl(null);
       return;
     }
+    setPdfError(null);
     const url = URL.createObjectURL(book.blob);
     setObjectUrl(url);
     return () => URL.revokeObjectURL(url);
@@ -152,7 +156,14 @@ export default function PdfViewer({
             <Document
               file={objectUrl}
               loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Loading PDF...</div>}
-              error={<div className="rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool">This PDF could not be opened.</div>}
+              error={
+                <div className="max-w-md rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool">
+                  <div className="font-bold">This PDF could not be opened.</div>
+                  {pdfError && <div className="mt-2 text-xs leading-5 text-rose-500">{pdfError}</div>}
+                </div>
+              }
+              onLoadError={(error) => setPdfError(error.message)}
+              onSourceError={(error) => setPdfError(error.message)}
               onLoadSuccess={({ numPages }) => onDocumentLoaded(numPages)}
             >
               <div className="relative">
