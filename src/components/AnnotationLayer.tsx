@@ -149,8 +149,24 @@ export default function AnnotationLayer({
     onUpdateAnnotation({ ...annotation, ...patch, updatedAt: nowIso() });
   }
 
+  const drawingCursor =
+    tool === "pen" || tool === "highlighter"
+      ? "cursor-crosshair"
+      : tool === "eraser"
+        ? "cursor-cell"
+        : tool === "note"
+          ? "cursor-copy"
+          : "pointer-events-none";
+
   return (
-    <div className="absolute inset-0" style={{ width: pageSize.width, height: pageSize.height }}>
+    <div
+      className={`absolute inset-0 z-30 ${drawingCursor}`}
+      style={{
+        width: pageSize.width,
+        height: pageSize.height,
+        touchAction: tool === "pan" ? "auto" : "none"
+      }}
+    >
       <Stage
         width={pageSize.width}
         height={pageSize.height}
@@ -158,6 +174,7 @@ export default function AnnotationLayer({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={commitDraft}
+        onPointerCancel={commitDraft}
         onPointerLeave={commitDraft}
       >
         <Layer>

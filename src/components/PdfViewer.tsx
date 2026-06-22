@@ -166,7 +166,7 @@ export default function PdfViewer({
               onSourceError={(error) => setPdfError(error.message)}
               onLoadSuccess={({ numPages }) => onDocumentLoaded(numPages)}
             >
-              <div className="relative">
+              <div className="relative isolate">
                 <Page
                   pageNumber={currentPage}
                   width={renderWidth}

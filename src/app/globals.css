@@ -50,3 +50,8 @@ textarea {
 .react-pdf__Page canvas {
   border-radius: 4px;
 }
+
+.react-pdf__Page__textContent,
+.react-pdf__Page__annotations {
+  z-index: 10;
+}
