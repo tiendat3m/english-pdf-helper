@@ -12,19 +12,22 @@
 - Vocabulary search, filter, sort, and status review.
 - Progress dashboard and recent activity.
 - Warm paper mode and dark mode.
+- Split workspace with PDF, notebook, vocabulary, and review map.
+- Stylus-only input mode for pen tablet workflows.
+- Daily goal and IELTS 8.0 progress tracker.
 
 ## Next Product Iterations
 
-1. Add PDF text search and search results navigation.
-2. Add page thumbnails and a fast page navigator.
-3. Add spaced repetition scheduling for vocabulary.
-4. Add handwriting smoothing with quadratic curve interpolation.
-5. Add annotation selection, resize handles, and color editing.
-6. Add export and import backup files.
-7. Add optional cloud sync after local data is robust.
-8. Add PDF outline/table-of-contents support.
-9. Add daily goals and a calendar heatmap.
-10. Add accessibility pass for keyboard-only study flows.
+1. Add a daily mission system with calendar heatmap and streak repair.
+2. Add stronger handwriting smoothing with quadratic curve interpolation and pen calibration.
+3. Add PDF text search and search results navigation.
+4. Add page thumbnails and a fast page navigator.
+5. Add spaced repetition scheduling for vocabulary.
+6. Add annotation selection, resize handles, and color editing.
+7. Add export and import backup files.
+8. Add optional cloud sync after local data is robust.
+9. Add PDF outline/table-of-contents support.
+10. Add Speaking Coach and recording analysis after the non-AI study loop is polished.
 
 ## Research Questions
 

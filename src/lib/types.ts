@@ -2,6 +2,10 @@ export type MainTab = "learn" | "vocabulary" | "progress";
 
 export type ToolMode = "pan" | "pen" | "highlighter" | "note" | "eraser";
 
+export type WorkspaceMode = "focus" | "split";
+
+export type InputMode = "all" | "stylus";
+
 export type StrokeColor = "black" | "blue" | "red";
 
 export type HighlightColor = "yellow" | "green" | "pink";
@@ -126,5 +130,10 @@ export interface EditorState {
   thickness: number;
   isDarkMode: boolean;
   isPaperMode: boolean;
+  workspaceMode: WorkspaceMode;
+  inputMode: InputMode;
+  dailyPageGoal: number;
+  targetBand: number;
+  currentBand: number;
   searchQuery: string;
 }

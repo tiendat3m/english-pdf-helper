@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Layer, Line, Rect, Stage } from "react-konva";
 import { v4 as uuid } from "uuid";
 import { HIGHLIGHT_COLORS, PEN_COLORS } from "@/lib/constants";
-import type { Annotation, HighlightColor, Point, StickyNoteAnnotation, StrokeColor, ToolMode } from "@/lib/types";
+import type { Annotation, HighlightColor, InputMode, Point, StickyNoteAnnotation, StrokeColor, ToolMode } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
 interface AnnotationLayerProps {
@@ -16,6 +16,7 @@ interface AnnotationLayerProps {
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
   thickness: number;
+  inputMode: InputMode;
   onAddAnnotation: (annotation: Annotation) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
@@ -44,6 +45,7 @@ export default function AnnotationLayer({
   penColor,
   highlighterColor,
   thickness,
+  inputMode,
   onAddAnnotation,
   onUpdateAnnotation,
   onDeleteAnnotation
@@ -57,6 +59,30 @@ export default function AnnotationLayer({
     [annotations, bookId, pageNumber]
   );
 
+  function shouldIgnorePointer(event: PointerEvent) {
+    return inputMode === "stylus" && event.pointerType !== "pen";
+  }
+
+  function smoothPoints(points: Point[]) {
+    if (points.length < 3) {
+      return points;
+    }
+
+    const smoothed: Point[] = [points[0]];
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const next = points[index + 1];
+      smoothed.push({
+        x: (previous.x + current.x * 2 + next.x) / 4,
+        y: (previous.y + current.y * 2 + next.y) / 4,
+        pressure: current.pressure
+      });
+    }
+    smoothed.push(points[points.length - 1]);
+    return smoothed;
+  }
+
   function getStagePoint(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
     const stage = event.target.getStage();
     const pointer = stage?.getPointerPosition();
@@ -67,6 +93,11 @@ export default function AnnotationLayer({
   }
 
   function handlePointerDown(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
+    if (shouldIgnorePointer(event.evt)) {
+      return;
+    }
+
+    event.evt.preventDefault();
     const point = getStagePoint(event);
     if (!point) {
       return;
@@ -106,12 +137,23 @@ export default function AnnotationLayer({
   }
 
   function handlePointerMove(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
+    if (shouldIgnorePointer(event.evt)) {
+      return;
+    }
+
     if (!draft.length || (tool !== "pen" && tool !== "highlighter")) {
       return;
     }
     const point = getStagePoint(event);
     if (point) {
-      setDraft((current) => [...current, point]);
+      setDraft((current) => {
+        const last = current[current.length - 1];
+        const minDistance = tool === "highlighter" ? 0.003 : 0.0018;
+        if (last && Math.hypot(last.x - point.x, last.y - point.y) < minDistance) {
+          return current;
+        }
+        return [...current, point];
+      });
     }
   }
 
@@ -120,6 +162,8 @@ export default function AnnotationLayer({
       setDraft([]);
       return;
     }
+
+    const points = smoothPoints(draft);
 
     onAddAnnotation({
       id: uuid(),
@@ -130,7 +174,7 @@ export default function AnnotationLayer({
       color: tool === "pen" ? PEN_COLORS[penColor] : HIGHLIGHT_COLORS[highlighterColor],
       width: tool === "pen" ? thickness : Math.max(8, thickness * 5),
       opacity: tool === "pen" ? 1 : 0.28,
-      points: draft,
+      points,
       createdAt: nowIso()
     });
     setDraft([]);

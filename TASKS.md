@@ -15,6 +15,8 @@
 - Added warm paper mode and dark mode.
 - Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
+- Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.
+- Improved handwriting mode with stylus-only input and smoother stroke capture for XP-Pen/Huion/Wacom workflows.
 - Added documentation for future agents.
 
 ## Recommended Next Tasks

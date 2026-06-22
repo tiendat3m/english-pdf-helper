@@ -12,6 +12,11 @@ export const initialEditorState: EditorState = {
   thickness: 2,
   isDarkMode: false,
   isPaperMode: true,
+  workspaceMode: "split",
+  inputMode: "all",
+  dailyPageGoal: 5,
+  targetBand: 8,
+  currentBand: 6.5,
   searchQuery: ""
 };
 

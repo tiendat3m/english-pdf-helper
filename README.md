@@ -6,7 +6,7 @@ npm install -D typescript @types/react @types/react-dom @types/node tailwindcss 
 npm run dev
 ```
 
-IELTS PDF Notes is a local-first study workspace for IELTS PDF books. It combines a focused PDF reader, pen and highlighter annotations, sticky notes, bookmarks, page status tracking, vocabulary capture, and progress review.
+IELTS PDF Notes is evolving into an IELTS OS: a local-first study workspace for IELTS PDF books. It combines a focused PDF reader, pen and highlighter annotations, sticky notes, bookmarks, page status tracking, vocabulary capture, progress review, warm paper reading, split-screen study, and daily motivation.
 
 ## Features
 
@@ -19,6 +19,9 @@ IELTS PDF Notes is a local-first study workspace for IELTS PDF books. It combine
 - Track books, studied pages, notes, vocabulary, streak, recent activity, and overall progress.
 - Use keyboard shortcuts: `P`, `H`, `N`, `E`, `Ctrl+Z`, `Ctrl+Y`, `+`, `-`, and Space for pan mode.
 - Toggle warm paper mode and dark mode.
+- Use Focus mode for a centered PDF or Split mode for PDF + Notebook + Vocabulary + Review Map.
+- Use Stylus-only mode for XP-Pen, Huion, Wacom, and tablet writing sessions.
+- Track a daily page goal, target IELTS 8.0, and current estimated band.
 
 ## Run
 
@@ -58,6 +61,7 @@ The app has no backend. IndexedDB stores books, annotations, bookmarks, page sta
 - `src/components/PdfViewer.tsx` renders PDF pages and captures selected vocabulary text.
 - `src/components/AnnotationLayer.tsx` handles Konva drawing, sticky notes, pressure, and erasing.
 - `src/components/PdfSidebar.tsx` manages library search, bookmarks, vocabulary highlights, and page status.
+- `src/components/StudyWorkspacePanel.tsx` provides the split-screen notebook, book vocabulary, and review map.
 - `src/components/VocabularyPanel.tsx` provides search, filter, sort, and status review.
 - `src/components/ProgressPanel.tsx` summarizes learning progress.
 - `src/lib/db.ts` is the IndexedDB API.

@@ -56,6 +56,18 @@ export function countStudiedPages(statuses: PageStatusRecord[]) {
   return statuses.filter((item) => item.status === "done" || item.status === "learning").length;
 }
 
+export function countDonePagesToday(statuses: PageStatusRecord[]) {
+  const today = nowIso().slice(0, 10);
+  return statuses.filter((item) => item.status === "done" && item.updatedAt.slice(0, 10) === today).length;
+}
+
+export function estimateBand(overallProgress: number, masteredVocabulary: number, notesCount: number) {
+  const progressBoost = clamp(overallProgress / 100, 0, 1) * 0.8;
+  const vocabBoost = clamp(masteredVocabulary / 500, 0, 1) * 0.5;
+  const noteBoost = clamp(notesCount / 250, 0, 1) * 0.2;
+  return clamp(5.5 + progressBoost + vocabBoost + noteBoost, 4, 8.5);
+}
+
 export function emptyAppData(): AppData {
   return {
     books: [],

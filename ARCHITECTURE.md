@@ -37,6 +37,12 @@ The viewer is loaded with `next/dynamic({ ssr: false })` from `Dashboard` to pre
 
 Pen pressure is read from `PointerEvent.pressure`. The renderer averages pressure to adjust stroke width when available and falls back to `0.5`.
 
+Stylus-only mode filters input to `PointerEvent.pointerType === "pen"`, which helps XP-Pen, Huion, Wacom, and touch-screen users avoid accidental palm/touch marks. Stroke capture also drops very-close points and applies light smoothing before saving.
+
+## IELTS OS Workspace
+
+The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. Split adds `StudyWorkspacePanel`, which shows a page notebook, book vocabulary, and review map beside the PDF, inspired by MarginNote and LiquidText.
+
 ## Persistence Flow
 
 Most interactions update React state optimistically, then persist to IndexedDB. The original PDF Blob remains untouched. Reopening a book restores the last page and zoom from the book record.

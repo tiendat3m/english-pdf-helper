@@ -19,6 +19,7 @@ import {
 import PdfUploader from "./PdfUploader";
 import PdfSidebar from "./PdfSidebar";
 import ProgressPanel from "./ProgressPanel";
+import StudyWorkspacePanel from "./StudyWorkspacePanel";
 import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
@@ -450,6 +451,24 @@ export default function Dashboard() {
     setAiError(null);
   }
 
+  function handleAddQuickNote(text: string) {
+    if (!activeBook) {
+      return;
+    }
+
+    addAnnotation({
+      id: uuid(),
+      bookId: activeBook.id,
+      pageNumber: editor.currentPage,
+      type: "note",
+      x: 0.12,
+      y: 0.12,
+      text,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    });
+  }
+
   async function handleVocabularyStatus(record: VocabularyRecord, status: VocabStatus) {
     const next = { ...record, status, updatedAt: nowIso() };
     await saveVocabulary(next);
@@ -478,6 +497,12 @@ export default function Dashboard() {
     { label: "Notes count", value: activeData.annotations.filter((annotation) => annotation.type === "note").length.toString(), icon: NotebookPen },
     { label: "Overall progress", value: formatPercent(getOverallProgress(activeBooks)), icon: TrendingUp }
   ];
+
+  const todayDonePages = activeData.pageStatuses.filter(
+    (status) => status.status === "done" && status.updatedAt.slice(0, 10) === nowIso().slice(0, 10)
+  ).length;
+  const dailyGoalProgress = Math.min(100, (todayDonePages / Math.max(editor.dailyPageGoal, 1)) * 100);
+  const needReviewCount = activeData.pageStatuses.filter((status) => status.status === "need-review").length;
 
   const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = activeBooks.length
     ? activeBooks.slice(0, 3).map((book) => ({
@@ -554,12 +579,29 @@ export default function Dashboard() {
             <div className="flex min-h-[420px] flex-col justify-between rounded-lg border border-stone-200 bg-white p-6 shadow-paper dark:border-stone-800 dark:bg-stone-950">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Continue Learning</p>
-                <h1 className="mt-4 max-w-2xl text-4xl font-black leading-tight text-stone-950 dark:text-stone-50 md:text-5xl">
-                  Study IELTS books with notes, highlights, and a vocabulary deck.
-                </h1>
-                <p className="mt-4 max-w-xl text-base leading-7 text-stone-600 dark:text-stone-300">
-                  Keep the PDF at the center, mark pages by status, save words for review, and return to exactly where you stopped.
-                </p>
+                <h1 className="mt-4 max-w-2xl text-4xl font-black leading-tight text-stone-950 dark:text-stone-50 md:text-5xl">IELTS OS</h1>
+                <div className="mt-4 rounded-lg bg-paper p-4 dark:bg-stone-900">
+                  <div className="text-xl font-black text-stone-950 dark:text-stone-50">{activeBook?.title ?? "Import your first IELTS book"}</div>
+                  <div className="mt-2 flex items-center justify-between text-sm font-semibold text-stone-500 dark:text-stone-400">
+                    <span>Last page: {activeBook?.lastPage ?? 1}</span>
+                    <span>{activeBook ? formatPercent(activeBook.progress) : "0%"}</span>
+                  </div>
+                  <div className="mt-3 h-3 overflow-hidden rounded-full bg-white dark:bg-stone-800">
+                    <div className="h-full rounded-full bg-sage" style={{ width: activeBook ? formatPercent(activeBook.progress) : "0%" }} />
+                  </div>
+                </div>
+                <div className="mt-4 rounded-lg border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-950">
+                  <div className="flex items-center justify-between text-sm font-black text-stone-800 dark:text-stone-100">
+                    <span>Today goal</span>
+                    <span>{todayDonePages}/{editor.dailyPageGoal} pages done</span>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800">
+                    <div className="h-full rounded-full bg-coral" style={{ width: `${dailyGoalProgress}%` }} />
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-300">
+                    Target IELTS {editor.targetBand.toFixed(1)} - current estimate {editor.currentBand.toFixed(1)} - {needReviewCount} pages need review
+                  </p>
+                </div>
               </div>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button
@@ -600,6 +642,17 @@ export default function Dashboard() {
                     </div>
                   </button>
                 ))}
+              </div>
+              <div className="mt-5 rounded-lg bg-skysoft/55 p-4 dark:bg-sage/15">
+                <div className="text-sm font-black text-stone-900 dark:text-stone-50">IELTS OS Stack</div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-stone-600 dark:text-stone-300">
+                  <span>PDF Books</span>
+                  <span>Handwriting</span>
+                  <span>Vocabulary</span>
+                  <span>Progress</span>
+                  <span>Warm Paper</span>
+                  <span>XP-Pen / Huion</span>
+                </div>
               </div>
             </div>
           </section>
@@ -646,50 +699,85 @@ export default function Dashboard() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
-                  <div className="text-xs text-stone-500 dark:text-stone-400">Original PDF is never modified. Notes are stored locally in IndexedDB.</div>
+                  <div className="text-xs text-stone-500 dark:text-stone-400">
+                    {editor.workspaceMode === "split" ? "Split: PDF + Notebook + Vocabulary" : "Focus: PDF centered"} -{" "}
+                    {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"}
+                  </div>
                 </div>
-                <Toolbar
-                  tool={editor.tool}
-                  penColor={editor.penColor}
-                  highlighterColor={editor.highlighterColor}
-                  thickness={editor.thickness}
-                  canUndo={undoStack.length > 0}
-                  canRedo={redoStack.length > 0}
-                  onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
-                  onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
-                  onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
-                  onThicknessChange={(thickness) => setEditor((current) => ({ ...current, thickness }))}
-                  onUndo={handleUndo}
-                  onRedo={handleRedo}
-                  onSave={() => activeBook && void saveBook(activeBook)}
-                  onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
-                  onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
-                  onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditor((current) => ({ ...current, workspaceMode: current.workspaceMode === "split" ? "focus" : "split" }))
+                    }
+                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                  >
+                    {editor.workspaceMode === "split" ? "Split" : "Focus"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditor((current) => ({ ...current, inputMode: current.inputMode === "stylus" ? "all" : "stylus" }))}
+                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                  >
+                    {editor.inputMode === "stylus" ? "Stylus only" : "All input"}
+                  </button>
+                  <Toolbar
+                    tool={editor.tool}
+                    penColor={editor.penColor}
+                    highlighterColor={editor.highlighterColor}
+                    thickness={editor.thickness}
+                    canUndo={undoStack.length > 0}
+                    canRedo={redoStack.length > 0}
+                    onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
+                    onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
+                    onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
+                    onThicknessChange={(thickness) => setEditor((current) => ({ ...current, thickness }))}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    onSave={() => activeBook && void saveBook(activeBook)}
+                    onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
+                    onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
+                    onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
+                  />
+                </div>
               </div>
             </div>
-            <PdfViewer
-              book={activeBook}
-              annotations={data.annotations}
-              currentPage={editor.currentPage}
-              zoom={editor.zoom}
-              tool={editor.tool}
-              penColor={editor.penColor}
-              highlighterColor={editor.highlighterColor}
-              thickness={editor.thickness}
-              onPageChange={changePage}
-              onZoomChange={changeZoom}
-              onDocumentLoaded={handleDocumentLoaded}
-              onAddAnnotation={addAnnotation}
-              onUpdateAnnotation={updateAnnotation}
-              onDeleteAnnotation={removeAnnotation}
-              onVocabularyCandidate={(selection) => {
-                setAiSelection(selection);
-                setAiResult(null);
-                setAiError(null);
-                setVocabularyMeta({ meaning: "", example: "" });
-              }}
-            />
+            <div className="flex min-h-0 flex-1">
+              <PdfViewer
+                book={activeBook}
+                annotations={data.annotations}
+                currentPage={editor.currentPage}
+                zoom={editor.zoom}
+                tool={editor.tool}
+                penColor={editor.penColor}
+                highlighterColor={editor.highlighterColor}
+                thickness={editor.thickness}
+                inputMode={editor.inputMode}
+                onPageChange={changePage}
+                onZoomChange={changeZoom}
+                onDocumentLoaded={handleDocumentLoaded}
+                onAddAnnotation={addAnnotation}
+                onUpdateAnnotation={updateAnnotation}
+                onDeleteAnnotation={removeAnnotation}
+                onVocabularyCandidate={(selection) => {
+                  setAiSelection(selection);
+                  setAiResult(null);
+                  setAiError(null);
+                  setVocabularyMeta({ meaning: "", example: "" });
+                }}
+              />
+              {editor.workspaceMode === "split" && (
+                <StudyWorkspacePanel
+                  book={activeBook}
+                  currentPage={editor.currentPage}
+                  annotations={data.annotations}
+                  vocabulary={activeData.vocabulary}
+                  pageStatuses={data.pageStatuses}
+                  onAddQuickNote={handleAddQuickNote}
+                  onJumpToPage={changePage}
+                />
+              )}
+            </div>
           </section>
         </main>
       )}
@@ -721,7 +809,7 @@ export default function Dashboard() {
                 </p>
                 <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">{aiSelection.word}</h2>
                 <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                  {aiSelection.sourceBookTitle} · page {aiSelection.sourcePage}
+                  {aiSelection.sourceBookTitle} - page {aiSelection.sourcePage}
                 </p>
               </div>
               <button

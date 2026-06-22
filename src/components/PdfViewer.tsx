@@ -7,7 +7,7 @@ import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { configurePdfWorker } from "@/lib/pdfWorker";
-import type { Annotation, BookRecord, HighlightColor, StrokeColor, ToolMode, VocabularyRecord } from "@/lib/types";
+import type { Annotation, BookRecord, HighlightColor, InputMode, StrokeColor, ToolMode, VocabularyRecord } from "@/lib/types";
 import { clamp } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/constants";
 
@@ -65,6 +65,7 @@ interface PdfViewerProps {
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
   thickness: number;
+  inputMode: InputMode;
   onPageChange: (page: number) => void;
   onZoomChange: (zoom: number) => void;
   onDocumentLoaded: (pages: number) => void;
@@ -83,6 +84,7 @@ export default function PdfViewer({
   penColor,
   highlighterColor,
   thickness,
+  inputMode,
   onPageChange,
   onZoomChange,
   onDocumentLoaded,
@@ -245,6 +247,7 @@ export default function PdfViewer({
                     penColor={penColor}
                     highlighterColor={highlighterColor}
                     thickness={thickness}
+                    inputMode={inputMode}
                     onAddAnnotation={onAddAnnotation}
                     onUpdateAnnotation={onUpdateAnnotation}
                     onDeleteAnnotation={onDeleteAnnotation}
