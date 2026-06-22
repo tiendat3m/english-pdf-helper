@@ -1,0 +1,55 @@
+# IELTS PDF Notes
+
+```bash
+npm install next react react-dom react-pdf pdfjs-dist react-konva konva idb uuid lucide-react
+npm install -D typescript @types/react @types/react-dom @types/node tailwindcss postcss autoprefixer eslint eslint-config-next
+npm run dev
+```
+
+IELTS PDF Notes is a local-first study workspace for IELTS PDF books. It combines a focused PDF reader, pen and highlighter annotations, sticky notes, bookmarks, page status tracking, vocabulary capture, and progress review.
+
+## Features
+
+- Import local PDF books and store the original Blob in IndexedDB.
+- Reopen saved PDFs after refresh with last page and zoom restored.
+- Render large PDFs through `react-pdf` and a browser-only PDF.js worker.
+- Annotate pages with pressure-aware pen strokes, transparent highlighter strokes, sticky notes, and eraser actions.
+- Save bookmarks by IELTS category and mark pages as Not Started, Learning, Done, or Need Review.
+- Select text in the PDF text layer and save it into an Anki-inspired vocabulary table.
+- Track books, studied pages, notes, vocabulary, streak, recent activity, and overall progress.
+- Use keyboard shortcuts: `P`, `H`, `N`, `E`, `Ctrl+Z`, `Ctrl+Y`, `+`, `-`, and Space for pan mode.
+- Toggle warm paper mode and dark mode.
+
+## Run
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Build
+
+```bash
+npm run build
+```
+
+## Local Storage Model
+
+The app has no backend. IndexedDB stores books, annotations, bookmarks, page statuses, vocabulary, and activity history. Original PDFs are never modified; annotations are separate records keyed by book and page.
+
+## Main Source Map
+
+- `src/app/page.tsx` starts the client app.
+- `src/components/Dashboard.tsx` owns app state, tabs, shortcuts, and persistence calls.
+- `src/components/PdfViewer.tsx` renders PDF pages and captures selected vocabulary text.
+- `src/components/AnnotationLayer.tsx` handles Konva drawing, sticky notes, pressure, and erasing.
+- `src/components/PdfSidebar.tsx` manages library search, bookmarks, vocabulary highlights, and page status.
+- `src/components/VocabularyPanel.tsx` provides search, filter, sort, and status review.
+- `src/components/ProgressPanel.tsx` summarizes learning progress.
+- `src/lib/db.ts` is the IndexedDB API.
+- `src/lib/pdfWorker.ts` configures the browser-only PDF.js worker.
+
+## Notes For Large PDFs
+
+The MVP renders one page at a time, which keeps memory predictable for 300+ page books. Future versions can add prefetching for neighboring pages and thumbnail indexing without changing the storage model.

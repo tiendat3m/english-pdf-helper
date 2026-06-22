@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f8f5ee;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(216, 237, 245, 0.42), transparent 30rem),
+    linear-gradient(135deg, #fbf8f1 0%, #f1f6f1 48%, #f8f5ee 100%);
+  color: #25211b;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(108, 143, 125, 0.24), transparent 30rem),
+    linear-gradient(135deg, #1e201d 0%, #171a1f 100%);
+  color: #f7f0e4;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.react-pdf__Page {
+  box-shadow: 0 20px 70px rgba(39, 34, 25, 0.16);
+}
+
+.react-pdf__Page canvas {
+  border-radius: 4px;
+}
