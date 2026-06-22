@@ -12,6 +12,7 @@
 - Implemented page status and bookmark categories.
 - Implemented vocabulary capture, search, filter, sort, status updates, and delete.
 - Added IPA and Vietnamese meaning fields to saved vocabulary.
+- Split IPA and Vietnamese meaning into their own Vocabulary table columns and added browser pronunciation playback.
 - Implemented progress metrics and recent activity.
 - Added warm paper mode and dark mode.
 - Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.
