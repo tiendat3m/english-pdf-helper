@@ -32,7 +32,6 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
-  onClearStrokes: () => void;
   onClearPage: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -60,7 +59,6 @@ export default function Toolbar({
   onUndo,
   onRedo,
   onSave,
-  onClearStrokes,
   onClearPage,
   onZoomIn,
   onZoomOut,
@@ -147,9 +145,6 @@ export default function Toolbar({
       </button>
       <button className="toolbar-icon" type="button" title="Save" onClick={onSave}>
         <Save className="h-4 w-4" />
-      </button>
-      <button className="toolbar-icon" type="button" title="Clear strokes on this page" onClick={onClearStrokes}>
-        <Eraser className="h-4 w-4" />
       </button>
       <button className="toolbar-icon danger-icon" type="button" title="Clear all annotations on this page" onClick={onClearPage}>
         <Trash2 className="h-4 w-4" />

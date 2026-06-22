@@ -351,14 +351,14 @@ export default function Dashboard() {
     void Promise.all(action.annotations.map((annotation) => deleteAnnotation(annotation.id)));
   }
 
-  function clearCurrentPageAnnotations(kind: "strokes" | "all") {
+  function clearCurrentPageAnnotations() {
     if (!activeBook) {
       return;
     }
 
     const annotationsToDelete = data.annotations.filter((annotation) => {
       const samePage = annotation.bookId === activeBook.id && annotation.pageNumber === editor.currentPage;
-      return samePage && (kind === "all" || annotation.type === "stroke");
+      return samePage;
     });
 
     if (!annotationsToDelete.length) {
@@ -782,8 +782,7 @@ export default function Dashboard() {
                     onUndo={handleUndo}
                     onRedo={handleRedo}
                     onSave={() => activeBook && void saveBook(activeBook)}
-                    onClearStrokes={() => clearCurrentPageAnnotations("strokes")}
-                    onClearPage={() => clearCurrentPageAnnotations("all")}
+                    onClearPage={clearCurrentPageAnnotations}
                     onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
                     onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
                     onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
