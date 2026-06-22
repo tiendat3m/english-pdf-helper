@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -14,6 +14,47 @@ import { MAX_ZOOM, MIN_ZOOM } from "@/lib/constants";
 const AnnotationLayer = dynamic(() => import("./AnnotationLayer"), { ssr: false });
 
 configurePdfWorker();
+
+interface PdfPageErrorBoundaryProps {
+  children: ReactNode;
+  resetKey: string;
+  onError: (error: Error) => void;
+}
+
+interface PdfPageErrorBoundaryState {
+  hasError: boolean;
+}
+
+class PdfPageErrorBoundary extends Component<PdfPageErrorBoundaryProps, PdfPageErrorBoundaryState> {
+  state: PdfPageErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  componentDidUpdate(previousProps: PdfPageErrorBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-md rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool dark:bg-stone-900">
+          <div className="font-bold">This page could not be rendered.</div>
+          <div className="mt-2 text-xs leading-5 text-rose-500">Try refreshing the page or reopening this book.</div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 interface PdfViewerProps {
   book: BookRecord | null;
@@ -99,6 +140,7 @@ export default function PdfViewer({
 
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
   const pdfFile = useMemo(() => book?.blob ?? null, [book?.blob]);
+  const pageRenderKey = `${book?.id ?? "no-book"}-${currentPage}-${renderWidth}`;
   const totalPages = book?.totalPages || 0;
 
   function measurePage() {
@@ -174,17 +216,20 @@ export default function PdfViewer({
             >
               <div className="relative isolate">
                 {isDocumentReady ? (
-                  <Page
-                    key={`${book.id}-${currentPage}-${renderWidth}`}
-                    pageNumber={currentPage}
-                    width={renderWidth}
-                    renderAnnotationLayer
-                    renderTextLayer
-                    loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Rendering page...</div>}
-                    onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
-                    onRenderError={(error) => setPdfError(error.message)}
-                    onRenderSuccess={measurePage}
-                  />
+                  <PdfPageErrorBoundary resetKey={pageRenderKey} onError={(error) => setPdfError(error.message)}>
+                    <Page
+                      key={pageRenderKey}
+                      pageNumber={currentPage}
+                      width={renderWidth}
+                      renderAnnotationLayer
+                      renderTextLayer
+                      loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Rendering page...</div>}
+                      onLoadError={(error) => setPdfError(error.message)}
+                      onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
+                      onRenderError={(error) => setPdfError(error.message)}
+                      onRenderSuccess={measurePage}
+                    />
+                  </PdfPageErrorBoundary>
                 ) : (
                   <div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool dark:bg-stone-900 dark:text-stone-300">
                     Loading PDF document...
