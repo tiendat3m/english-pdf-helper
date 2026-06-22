@@ -21,6 +21,7 @@ IELTS PDF Notes is evolving into an IELTS OS: a local-first study workspace for 
 - Toggle warm paper mode and dark mode.
 - Use Focus mode for a centered PDF or Split mode for PDF + Notebook + Vocabulary + Review Map.
 - Use Stylus-only mode for XP-Pen, Huion, Wacom, and tablet writing sessions.
+- Clear all strokes or all annotations on the current page, with undo/redo recovery.
 - Track a daily page goal, target IELTS 8.0, and current estimated band.
 
 ## Run

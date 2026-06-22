@@ -65,6 +65,10 @@ interface AiResult {
   suggestedNote: string;
 }
 
+type HistoryAction =
+  | { type: "add"; annotations: Annotation[] }
+  | { type: "delete"; annotations: Annotation[] };
+
 const PdfViewer = dynamic(() => import("./PdfViewer"), {
   ssr: false,
   loading: () => (
@@ -79,8 +83,8 @@ export default function Dashboard() {
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [undoStack, setUndoStack] = useState<Annotation[]>([]);
-  const [redoStack, setRedoStack] = useState<Annotation[]>([]);
+  const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
   const [aiSelection, setAiSelection] = useState<VocabularyDraft>(null);
   const [aiMode, setAiMode] = useState<AiMode>("vocab");
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
@@ -279,7 +283,7 @@ export default function Dashboard() {
 
   function addAnnotation(annotation: Annotation) {
     setData((current) => ({ ...current, annotations: [...current.annotations, annotation] }));
-    setUndoStack((current) => [...current, annotation]);
+    setUndoStack((current) => [...current, { type: "add", annotations: [annotation] }]);
     setRedoStack([]);
     void saveAnnotation(annotation);
   }
@@ -295,34 +299,77 @@ export default function Dashboard() {
   function removeAnnotation(id: string) {
     const existing = data.annotations.find((annotation) => annotation.id === id);
     if (existing) {
-      setRedoStack((current) => [...current, existing]);
+      setUndoStack((current) => [...current, { type: "delete", annotations: [existing] }]);
+      setRedoStack([]);
     }
     setData((current) => ({ ...current, annotations: current.annotations.filter((item) => item.id !== id) }));
     void deleteAnnotation(id);
   }
 
   function handleUndo() {
-    const last = [...undoStack]
-      .reverse()
-      .find((annotation) => annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage);
-    if (!last) {
+    const lastIndex = undoStack.findLastIndex((action) =>
+      action.annotations.some((annotation) => annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage)
+    );
+    if (lastIndex < 0) {
       return;
     }
-    setUndoStack((current) => current.filter((annotation) => annotation.id !== last.id));
-    setRedoStack((current) => [...current, last]);
-    setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => annotation.id !== last.id) }));
-    void deleteAnnotation(last.id);
+
+    const action = undoStack[lastIndex];
+    setUndoStack((current) => current.filter((_, index) => index !== lastIndex));
+    setRedoStack((current) => [...current, action]);
+
+    if (action.type === "add") {
+      const ids = new Set(action.annotations.map((annotation) => annotation.id));
+      setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
+      void Promise.all(action.annotations.map((annotation) => deleteAnnotation(annotation.id)));
+      return;
+    }
+
+    setData((current) => ({ ...current, annotations: [...current.annotations, ...action.annotations] }));
+    void Promise.all(action.annotations.map((annotation) => saveAnnotation(annotation)));
   }
 
   function handleRedo() {
-    const last = redoStack[redoStack.length - 1];
-    if (!last) {
+    const lastIndex = redoStack.findLastIndex((action) =>
+      action.annotations.some((annotation) => annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage)
+    );
+    if (lastIndex < 0) {
       return;
     }
-    setRedoStack((current) => current.slice(0, -1));
-    setUndoStack((current) => [...current, last]);
-    setData((current) => ({ ...current, annotations: [...current.annotations, last] }));
-    void saveAnnotation(last);
+    const action = redoStack[lastIndex];
+    setRedoStack((current) => current.filter((_, index) => index !== lastIndex));
+    setUndoStack((current) => [...current, action]);
+
+    if (action.type === "add") {
+      setData((current) => ({ ...current, annotations: [...current.annotations, ...action.annotations] }));
+      void Promise.all(action.annotations.map((annotation) => saveAnnotation(annotation)));
+      return;
+    }
+
+    const ids = new Set(action.annotations.map((annotation) => annotation.id));
+    setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
+    void Promise.all(action.annotations.map((annotation) => deleteAnnotation(annotation.id)));
+  }
+
+  function clearCurrentPageAnnotations(kind: "strokes" | "all") {
+    if (!activeBook) {
+      return;
+    }
+
+    const annotationsToDelete = data.annotations.filter((annotation) => {
+      const samePage = annotation.bookId === activeBook.id && annotation.pageNumber === editor.currentPage;
+      return samePage && (kind === "all" || annotation.type === "stroke");
+    });
+
+    if (!annotationsToDelete.length) {
+      return;
+    }
+
+    setUndoStack((current) => [...current, { type: "delete", annotations: annotationsToDelete }]);
+    setRedoStack([]);
+    const ids = new Set(annotationsToDelete.map((annotation) => annotation.id));
+    setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
+    void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
   }
 
   async function handleSetPageStatus(status: PageStatus) {
@@ -735,6 +782,8 @@ export default function Dashboard() {
                     onUndo={handleUndo}
                     onRedo={handleRedo}
                     onSave={() => activeBook && void saveBook(activeBook)}
+                    onClearStrokes={() => clearCurrentPageAnnotations("strokes")}
+                    onClearPage={() => clearCurrentPageAnnotations("all")}
                     onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
                     onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
                     onFitWidth={() => changeZoom(DEFAULT_ZOOM)}

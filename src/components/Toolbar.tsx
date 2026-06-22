@@ -10,6 +10,7 @@ import {
   Plus,
   Redo2,
   Save,
+  Trash2,
   Undo2,
   ZoomIn,
   ZoomOut
@@ -31,6 +32,8 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
+  onClearStrokes: () => void;
+  onClearPage: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitWidth: () => void;
@@ -57,6 +60,8 @@ export default function Toolbar({
   onUndo,
   onRedo,
   onSave,
+  onClearStrokes,
+  onClearPage,
   onZoomIn,
   onZoomOut,
   onFitWidth
@@ -143,6 +148,12 @@ export default function Toolbar({
       <button className="toolbar-icon" type="button" title="Save" onClick={onSave}>
         <Save className="h-4 w-4" />
       </button>
+      <button className="toolbar-icon" type="button" title="Clear strokes on this page" onClick={onClearStrokes}>
+        <Eraser className="h-4 w-4" />
+      </button>
+      <button className="toolbar-icon danger-icon" type="button" title="Clear all annotations on this page" onClick={onClearPage}>
+        <Trash2 className="h-4 w-4" />
+      </button>
 
       <div className="mx-1 h-8 w-px bg-stone-200 dark:bg-stone-700" />
 
@@ -172,6 +183,12 @@ export default function Toolbar({
         .toolbar-icon:disabled {
           cursor: not-allowed;
           opacity: 0.35;
+        }
+        .danger-icon {
+          color: rgb(190 18 60);
+        }
+        .danger-icon:hover:not(:disabled) {
+          background: rgb(255 241 242);
         }
         :global(.dark) .toolbar-icon {
           color: rgb(231 229 228);
