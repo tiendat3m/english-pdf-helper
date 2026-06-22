@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Bookmark, BookOpen, Clock3, GraduationCap, RotateCcw, Search, Trash2 } from "lucide-react";
 import PdfUploader from "./PdfUploader";
 import { BOOKMARK_CATEGORIES, DELETED_BOOK_RETENTION_DAYS, PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
@@ -20,6 +21,7 @@ interface PdfSidebarProps {
   onOpenBook: (bookId: string) => void;
   onDeleteBook: (bookId: string) => void;
   onRestoreBook: (bookId: string) => void;
+  onPermanentDeleteBooks: (bookIds: string[]) => void;
   onAddBookmark: (category: BookmarkRecord["category"]) => void;
   onSetPageStatus: (status: PageStatus) => void;
   onJumpToPage: (page: number) => void;
@@ -41,6 +43,7 @@ export default function PdfSidebar({
   onOpenBook,
   onDeleteBook,
   onRestoreBook,
+  onPermanentDeleteBooks,
   onAddBookmark,
   onSetPageStatus,
   onJumpToPage
@@ -49,6 +52,14 @@ export default function PdfSidebar({
   const pageStatus = pageStatuses.find((status) => status.bookId === activeBookId && status.pageNumber === currentPage);
   const activeBookmarks = bookmarks.filter((bookmark) => bookmark.bookId === activeBookId);
   const activeVocabulary = vocabulary.filter((item) => item.sourceBookId === activeBookId).slice(0, 5);
+  const deletedBookIds = useMemo(() => deletedBooks.map((book) => book.id), [deletedBooks]);
+  const [selectedDeletedIds, setSelectedDeletedIds] = useState<string[]>([]);
+  const selectedDeletedCount = selectedDeletedIds.length;
+  const isAllDeletedSelected = deletedBookIds.length > 0 && selectedDeletedCount === deletedBookIds.length;
+
+  useEffect(() => {
+    setSelectedDeletedIds((current) => current.filter((bookId) => deletedBookIds.includes(bookId)));
+  }, [deletedBookIds]);
 
   function getDeletedDaysLeft(book: BookRecord) {
     if (!book.deletedAt) {
@@ -56,6 +67,30 @@ export default function PdfSidebar({
     }
     const elapsedMs = Date.now() - new Date(book.deletedAt).getTime();
     return Math.max(0, DELETED_BOOK_RETENTION_DAYS - Math.floor(elapsedMs / (24 * 60 * 60 * 1000)));
+  }
+
+  function toggleDeletedBook(bookId: string) {
+    setSelectedDeletedIds((current) => (current.includes(bookId) ? current.filter((id) => id !== bookId) : [...current, bookId]));
+  }
+
+  function toggleAllDeletedBooks() {
+    setSelectedDeletedIds(isAllDeletedSelected ? [] : deletedBookIds);
+  }
+
+  function confirmPermanentDelete(bookIds: string[]) {
+    if (!bookIds.length) {
+      return;
+    }
+
+    const message =
+      bookIds.length === 1
+        ? "Permanently delete this book and all its notes, annotations, vocabulary, and progress?"
+        : `Permanently delete ${bookIds.length} books and all their notes, annotations, vocabulary, and progress?`;
+
+    if (window.confirm(message)) {
+      onPermanentDeleteBooks(bookIds);
+      setSelectedDeletedIds((current) => current.filter((bookId) => !bookIds.includes(bookId)));
+    }
   }
 
   return (
@@ -125,25 +160,68 @@ export default function PdfSidebar({
 
       {deletedBooks.length > 0 && (
         <section className="space-y-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-stone-800 dark:text-stone-100">
-            <Trash2 className="h-4 w-4 text-sage" />
-            Recently Deleted
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-bold text-stone-800 dark:text-stone-100">
+              <Trash2 className="h-4 w-4 text-sage" />
+              Recently Deleted
+            </div>
+            <button
+              type="button"
+              onClick={toggleAllDeletedBooks}
+              className="text-xs font-bold text-sage transition hover:text-ink dark:hover:text-paper"
+            >
+              {isAllDeletedSelected ? "Clear" : "Select all"}
+            </button>
           </div>
+          {selectedDeletedCount > 0 && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2 dark:border-rose-900 dark:bg-rose-950">
+              <span className="text-xs font-bold text-rose-700 dark:text-rose-200">{selectedDeletedCount} selected</span>
+              <button
+                type="button"
+                onClick={() => confirmPermanentDelete(selectedDeletedIds)}
+                className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-xs font-bold text-white transition hover:bg-rose-700"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete selected
+              </button>
+            </div>
+          )}
           <div className="space-y-2">
             {deletedBooks.map((book) => (
               <div key={book.id} className="rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900">
-                <div className="line-clamp-2 text-sm font-bold text-stone-700 dark:text-stone-100">{book.title}</div>
-                <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                  Deletes in {getDeletedDaysLeft(book)} days
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedDeletedIds.includes(book.id)}
+                    onChange={() => toggleDeletedBook(book.id)}
+                    className="mt-0.5 h-4 w-4 rounded border-stone-300 accent-sage"
+                    aria-label={`Select ${book.title} for permanent delete`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-sm font-bold text-stone-700 dark:text-stone-100">{book.title}</div>
+                    <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">
+                      Deletes in {getDeletedDaysLeft(book)} days
+                    </div>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onRestoreBook(book.id)}
-                  className="mt-2 inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-bold text-stone-600 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-950 dark:text-stone-200"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Restore
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onRestoreBook(book.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-bold text-stone-600 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-950 dark:text-stone-200"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => confirmPermanentDelete([book.id])}
+                    className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:bg-stone-950 dark:hover:bg-rose-950"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete forever
+                  </button>
+                </div>
               </div>
             ))}
           </div>

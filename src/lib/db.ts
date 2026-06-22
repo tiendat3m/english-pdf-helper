@@ -208,6 +208,21 @@ async function permanentlyDeleteBook(db: IDBPDatabase<IeltsPdfNotesDB>, bookId: 
   ]);
 }
 
+export async function permanentlyDeleteBooks(bookIds: string[]) {
+  const db = await getDb();
+  const uniqueBookIds = Array.from(new Set(bookIds));
+  const books = await Promise.all(uniqueBookIds.map((bookId) => db.get("books", bookId)));
+  const deletedBooks = books.filter((book): book is BookRecord => Boolean(book?.deletedAt));
+
+  await Promise.all(deletedBooks.map((book) => permanentlyDeleteBook(db, book.id)));
+  if (deletedBooks.length) {
+    await addActivity({
+      type: "book-permanently-deleted",
+      label: `Permanently deleted ${deletedBooks.length} book${deletedBooks.length === 1 ? "" : "s"}`
+    });
+  }
+}
+
 export async function saveAnnotation(annotation: Annotation) {
   const db = await getDb();
   await db.put("annotations", annotation);

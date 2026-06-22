@@ -26,6 +26,7 @@ import {
   deleteVocabulary,
   importBook,
   loadAppData,
+  permanentlyDeleteBooks,
   restoreBook,
   saveAnnotation,
   saveBook,
@@ -248,6 +249,27 @@ export default function Dashboard() {
       currentPage: restoredBook.lastPage || 1,
       zoom: restoredBook.zoom || DEFAULT_ZOOM
     }));
+    await refreshData();
+  }
+
+  async function handlePermanentDeleteBooks(bookIds: string[]) {
+    if (!bookIds.length) {
+      return;
+    }
+
+    await permanentlyDeleteBooks(bookIds);
+    if (editor.activeBookId && bookIds.includes(editor.activeBookId)) {
+      const nextBook = activeBooks.find((book) => !bookIds.includes(book.id)) ?? null;
+      setEditor((current) => ({
+        ...current,
+        activeBookId: nextBook?.id ?? null,
+        currentPage: nextBook?.lastPage ?? 1,
+        zoom: nextBook?.zoom ?? DEFAULT_ZOOM
+      }));
+      if (!nextBook) {
+        setIsWorkspaceOpen(false);
+      }
+    }
     await refreshData();
   }
 
@@ -752,6 +774,7 @@ export default function Dashboard() {
             onOpenBook={openBook}
             onDeleteBook={handleDeleteBook}
             onRestoreBook={handleRestoreBook}
+            onPermanentDeleteBooks={handlePermanentDeleteBooks}
             onAddBookmark={handleAddBookmark}
             onSetPageStatus={handleSetPageStatus}
             onJumpToPage={changePage}
