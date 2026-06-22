@@ -20,7 +20,7 @@ function isAiMode(value: unknown): value is AiMode {
   return value === "vocab" || value === "explain" || value === "grammar" || value === "note";
 }
 
-function extractOutputText(response: unknown) {
+function extractOpenAiOutputText(response: unknown) {
   if (
     response &&
     typeof response === "object" &&
@@ -53,6 +53,31 @@ function extractOutputText(response: unknown) {
     .trim();
 }
 
+function extractGeminiOutputText(response: unknown) {
+  if (!response || typeof response !== "object" || !("candidates" in response) || !Array.isArray(response.candidates)) {
+    return "";
+  }
+
+  return (response.candidates as unknown[])
+    .flatMap((candidate: unknown) => {
+      if (!candidate || typeof candidate !== "object" || !("content" in candidate)) {
+        return [];
+      }
+      const content = candidate.content;
+      if (!content || typeof content !== "object" || !("parts" in content) || !Array.isArray(content.parts)) {
+        return [];
+      }
+      return (content.parts as unknown[]).flatMap((part: unknown) => {
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return [part.text];
+        }
+        return [];
+      });
+    })
+    .join("\n")
+    .trim();
+}
+
 function fallbackJson(text: string, mode: AiMode) {
   return {
     title: modeLabels[mode],
@@ -65,37 +90,12 @@ function fallbackJson(text: string, mode: AiMode) {
   };
 }
 
-export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Missing OPENAI_API_KEY. Add it to .env.local and restart npm run dev." },
-      { status: 500 }
-    );
-  }
-
-  let body: AiRequestBody;
-  try {
-    body = (await request.json()) as AiRequestBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
-  }
-
-  const text = body.text?.trim();
-  if (!text) {
-    return NextResponse.json({ error: "Text is required." }, { status: 400 });
-  }
-
-  if (!isAiMode(body.mode)) {
-    return NextResponse.json({ error: "Invalid AI mode." }, { status: 400 });
-  }
-
-  const model = process.env.OPENAI_MODEL ?? "gpt-5.5";
+function buildPrompt(body: AiRequestBody, text: string) {
   const source = [body.sourceBookTitle, body.sourcePage ? `page ${body.sourcePage}` : ""]
     .filter(Boolean)
     .join(", ");
 
-  const prompt = `You are an IELTS Band 8 study coach.
+  return `You are an IELTS Band 8 study coach.
 Return only valid compact JSON with these keys:
 title, summary, meaning, example, grammar, vietnamese, suggestedNote.
 
@@ -111,7 +111,63 @@ Rules:
 - If mode is grammar, identify the grammar pattern and why it matters.
 - vietnamese should briefly explain in Vietnamese.
 - suggestedNote should be ready to save as a sticky note.`;
+}
 
+function parseJsonOrFallback(outputText: string, text: string, mode: AiMode) {
+  try {
+    return JSON.parse(outputText);
+  } catch {
+    return fallbackJson(outputText || text, mode);
+  }
+}
+
+async function callGemini(prompt: string) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const model = process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
+    }
+  );
+
+  const payload = (await response.json()) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? JSON.stringify(payload.error)
+        : "Gemini request failed.";
+    return NextResponse.json({ error: message, provider: "gemini" }, { status: response.status });
+  }
+
+  return extractGeminiOutputText(payload);
+}
+
+async function callOpenAi(prompt: string) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const model = process.env.OPENAI_MODEL ?? "gpt-5.5";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -130,13 +186,48 @@ Rules:
       payload && typeof payload === "object" && "error" in payload
         ? JSON.stringify(payload.error)
         : "OpenAI request failed.";
-    return NextResponse.json({ error: message }, { status: response.status });
+    return NextResponse.json({ error: message, provider: "openai" }, { status: response.status });
   }
 
-  const outputText = extractOutputText(payload);
+  return extractOpenAiOutputText(payload);
+}
+
+export async function POST(request: Request) {
+  let body: AiRequestBody;
   try {
-    return NextResponse.json(JSON.parse(outputText));
+    body = (await request.json()) as AiRequestBody;
   } catch {
-    return NextResponse.json(fallbackJson(outputText || text, body.mode));
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
+
+  const text = body.text?.trim();
+  if (!text) {
+    return NextResponse.json({ error: "Text is required." }, { status: 400 });
+  }
+
+  if (!isAiMode(body.mode)) {
+    return NextResponse.json({ error: "Invalid AI mode." }, { status: 400 });
+  }
+
+  const prompt = buildPrompt(body, text);
+  const geminiResult = await callGemini(prompt);
+  if (geminiResult instanceof NextResponse) {
+    return geminiResult;
+  }
+  if (typeof geminiResult === "string") {
+    return NextResponse.json(parseJsonOrFallback(geminiResult, text, body.mode));
+  }
+
+  const openAiResult = await callOpenAi(prompt);
+  if (openAiResult instanceof NextResponse) {
+    return openAiResult;
+  }
+  if (typeof openAiResult === "string") {
+    return NextResponse.json(parseJsonOrFallback(openAiResult, text, body.mode));
+  }
+
+  return NextResponse.json(
+    { error: "Missing GEMINI_API_KEY. Add a free Gemini key to .env, or configure OPENAI_API_KEY." },
+    { status: 500 }
+  );
 }

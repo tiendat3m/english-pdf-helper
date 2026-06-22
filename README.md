@@ -35,11 +35,11 @@ Open `http://localhost:3000`.
 
 ## AI Study Coach
 
-Create `.env.local` before using AI actions:
+Create `.env` before using AI actions. Gemini is preferred for the free-tier path:
 
 ```bash
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-5.5
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3-flash-preview
 ```
 
 Restart `npm run dev` after changing environment variables.

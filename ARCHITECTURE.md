@@ -51,9 +51,9 @@ Most interactions update React state optimistically, then persist to IndexedDB. 
 
 ## AI Study Coach
 
-`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls the OpenAI Responses API using `OPENAI_API_KEY`. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, or sticky-note creation.
+`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls the Gemini API with `GEMINI_API_KEY` first, then falls back to the OpenAI Responses API if `OPENAI_API_KEY` is configured. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, or sticky-note creation.
 
-The browser never receives the API key. Set `OPENAI_MODEL` to change the model without code changes.
+The browser never receives provider API keys. Set `GEMINI_MODEL` or `OPENAI_MODEL` to change models without code changes.
 
 ## SSR Boundaries
 
