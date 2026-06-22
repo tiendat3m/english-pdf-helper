@@ -52,7 +52,7 @@ export default function PdfViewer({
 }: PdfViewerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const pageShellRef = useRef<HTMLDivElement>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
@@ -63,14 +63,32 @@ export default function PdfViewer({
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+
     if (!book) {
-      setObjectUrl(null);
+      setPdfBytes(null);
       return;
     }
+
     setPdfError(null);
-    const url = URL.createObjectURL(book.blob);
-    setObjectUrl(url);
-    return () => URL.revokeObjectURL(url);
+
+    book.blob
+      .arrayBuffer()
+      .then((buffer) => {
+        if (!isCancelled) {
+          setPdfBytes(new Uint8Array(buffer));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setPdfBytes(null);
+          setPdfError(error instanceof Error ? error.message : "Could not read this PDF from local storage.");
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [book]);
 
   useEffect(() => {
@@ -103,6 +121,7 @@ export default function PdfViewer({
   }, []);
 
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
+  const pdfFile = useMemo(() => (pdfBytes ? { data: pdfBytes } : null), [pdfBytes]);
   const totalPages = book?.totalPages || 0;
 
   function measurePage() {
@@ -152,9 +171,9 @@ export default function PdfViewer({
         onMouseUp={handleSelectionCapture}
       >
         <div className="mx-auto w-fit" ref={pageShellRef}>
-          {objectUrl && (
+          {pdfFile ? (
             <Document
-              file={objectUrl}
+              file={pdfFile}
               loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Loading PDF...</div>}
               error={
                 <div className="max-w-md rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool">
@@ -192,6 +211,10 @@ export default function PdfViewer({
                 )}
               </div>
             </Document>
+          ) : (
+            <div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool dark:bg-stone-900 dark:text-stone-300">
+              Preparing local PDF...
+            </div>
           )}
         </div>
       </div>
