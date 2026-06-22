@@ -398,11 +398,7 @@ export default function Dashboard() {
     setData((current) => ({ ...current, bookmarks: [...current.bookmarks, bookmark] }));
   }
 
-  async function handleAiAnalyze(mode: AiMode) {
-    if (!aiSelection) {
-      return;
-    }
-
+  async function analyzeSelection(selection: NonNullable<VocabularyDraft>, mode: AiMode) {
     setAiMode(mode);
     setAiError(null);
     setIsAiLoading(true);
@@ -413,9 +409,9 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode,
-          text: aiSelection.word,
-          sourceBookTitle: aiSelection.sourceBookTitle,
-          sourcePage: aiSelection.sourcePage
+          text: selection.word,
+          sourceBookTitle: selection.sourceBookTitle,
+          sourcePage: selection.sourcePage
         })
       });
 
@@ -444,6 +440,14 @@ export default function Dashboard() {
     } finally {
       setIsAiLoading(false);
     }
+  }
+
+  async function handleAiAnalyze(mode: AiMode) {
+    if (!aiSelection) {
+      return;
+    }
+
+    await analyzeSelection(aiSelection, mode);
   }
 
   async function handleVocabularySave() {
@@ -809,11 +813,15 @@ export default function Dashboard() {
                 onAddAnnotation={addAnnotation}
                 onUpdateAnnotation={updateAnnotation}
                 onDeleteAnnotation={removeAnnotation}
-                onVocabularyCandidate={(selection) => {
+                onVocabularyCandidate={(selection, mode = "vocab") => {
                   setAiSelection(selection);
+                  setAiMode(mode);
                   setAiResult(null);
                   setAiError(null);
                   setVocabularyMeta({ meaning: "", example: "" });
+                  if (mode === "explain") {
+                    void analyzeSelection(selection, mode);
+                  }
                 }}
               />
               {editor.workspaceMode === "split" && (

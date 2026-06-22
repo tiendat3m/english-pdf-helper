@@ -18,6 +18,7 @@
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.
 - Improved handwriting mode with stylus-only input and smoother stroke capture for XP-Pen/Huion/Wacom workflows.
 - Added clear-page action with undo/redo recovery for messy handwriting sessions.
+- Added text-aware rectangle highlighting with selected text capture, Vocabulary, Note, and AI Explain contextual actions.
 - Added documentation for future agents.
 
 ## Recommended Next Tasks

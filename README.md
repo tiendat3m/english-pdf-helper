@@ -14,6 +14,7 @@ IELTS PDF Notes is evolving into an IELTS OS: a local-first study workspace for 
 - Reopen saved PDFs after refresh with last page and zoom restored.
 - Render large PDFs through `react-pdf` and a browser-only PDF.js worker.
 - Annotate pages with pressure-aware pen strokes, transparent highlighter strokes, sticky notes, and eraser actions.
+- Create text-aware rectangle highlights that detect covered PDF text and offer Vocabulary, Note, and AI Explain actions.
 - Save bookmarks by IELTS category and mark pages as Not Started, Learning, Done, or Need Review.
 - Select text in the PDF text layer and save it into an Anki-inspired vocabulary table.
 - Track books, studied pages, notes, vocabulary, streak, recent activity, and overall progress.
@@ -60,7 +61,7 @@ The app has no backend. IndexedDB stores books, annotations, bookmarks, page sta
 - `src/app/page.tsx` starts the client app.
 - `src/components/Dashboard.tsx` owns app state, tabs, shortcuts, and persistence calls.
 - `src/components/PdfViewer.tsx` renders PDF pages and captures selected vocabulary text.
-- `src/components/AnnotationLayer.tsx` handles Konva drawing, sticky notes, pressure, and erasing.
+- `src/components/AnnotationLayer.tsx` handles Konva drawing, text-aware highlight rectangles, sticky notes, pressure, and erasing.
 - `src/components/PdfSidebar.tsx` manages library search, bookmarks, vocabulary highlights, and page status.
 - `src/components/StudyWorkspacePanel.tsx` provides the split-screen notebook, book vocabulary, and review map.
 - `src/components/VocabularyPanel.tsx` provides search, filter, sort, and status review.

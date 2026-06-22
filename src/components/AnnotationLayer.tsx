@@ -4,7 +4,18 @@ import { useMemo, useRef, useState } from "react";
 import { Layer, Line, Rect, Stage } from "react-konva";
 import { v4 as uuid } from "uuid";
 import { HIGHLIGHT_COLORS, PEN_COLORS } from "@/lib/constants";
-import type { Annotation, HighlightColor, InputMode, Point, StickyNoteAnnotation, StrokeColor, ToolMode } from "@/lib/types";
+import type {
+  Annotation,
+  HighlightAnnotation,
+  HighlightColor,
+  InputMode,
+  NormalizedRect,
+  PdfTextItem,
+  Point,
+  StickyNoteAnnotation,
+  StrokeColor,
+  ToolMode
+} from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
 interface AnnotationLayerProps {
@@ -17,7 +28,9 @@ interface AnnotationLayerProps {
   highlighterColor: HighlightColor;
   thickness: number;
   inputMode: InputMode;
+  textItems: PdfTextItem[];
   onAddAnnotation: (annotation: Annotation) => void;
+  onHighlightCreated: (annotation: HighlightAnnotation, anchor: Point) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
 }
@@ -46,11 +59,14 @@ export default function AnnotationLayer({
   highlighterColor,
   thickness,
   inputMode,
+  textItems,
   onAddAnnotation,
+  onHighlightCreated,
   onUpdateAnnotation,
   onDeleteAnnotation
 }: AnnotationLayerProps) {
   const [draft, setDraft] = useState<Point[]>([]);
+  const [highlightDraft, setHighlightDraft] = useState<{ start: Point; end: Point } | null>(null);
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
@@ -83,6 +99,44 @@ export default function AnnotationLayer({
     return smoothed;
   }
 
+  function normalizeRect(start: Point, end: Point): NormalizedRect {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    return {
+      x,
+      y,
+      width: Math.abs(start.x - end.x),
+      height: Math.abs(start.y - end.y)
+    };
+  }
+
+  function rectsOverlap(first: NormalizedRect, second: NormalizedRect) {
+    return (
+      first.x < second.x + second.width &&
+      first.x + first.width > second.x &&
+      first.y < second.y + second.height &&
+      first.y + first.height > second.y
+    );
+  }
+
+  function getTextForRect(rect: NormalizedRect) {
+    return textItems
+      .filter((item) => rectsOverlap(rect, item.box))
+      .sort((a, b) => {
+        const lineDelta = a.box.y - b.box.y;
+        if (Math.abs(lineDelta) > 0.012) {
+          return lineDelta;
+        }
+        return a.box.x - b.box.x || a.order - b.order;
+      })
+      .map((item) => item.text.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+([,.!?;:])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   function getStagePoint(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
     const stage = event.target.getStage();
     const pointer = stage?.getPointerPosition();
@@ -108,6 +162,14 @@ export default function AnnotationLayer({
         if (annotation.type === "note") {
           return Math.abs(annotation.x - point.x) < 0.06 && Math.abs(annotation.y - point.y) < 0.05;
         }
+        if (annotation.type === "highlight") {
+          return (
+            point.x >= annotation.rect.x &&
+            point.x <= annotation.rect.x + annotation.rect.width &&
+            point.y >= annotation.rect.y &&
+            point.y <= annotation.rect.y + annotation.rect.height
+          );
+        }
         return distanceToStroke(point, annotation.points) < 0.025;
       });
       if (match) {
@@ -131,7 +193,12 @@ export default function AnnotationLayer({
       return;
     }
 
-    if (tool === "pen" || tool === "highlighter") {
+    if (tool === "highlighter") {
+      setHighlightDraft({ start: point, end: point });
+      return;
+    }
+
+    if (tool === "pen") {
       setDraft([point]);
     }
   }
@@ -141,14 +208,22 @@ export default function AnnotationLayer({
       return;
     }
 
-    if (!draft.length || (tool !== "pen" && tool !== "highlighter")) {
+    if (tool === "highlighter" && highlightDraft) {
+      const point = getStagePoint(event);
+      if (point) {
+        setHighlightDraft((current) => (current ? { ...current, end: point } : current));
+      }
+      return;
+    }
+
+    if (!draft.length || tool !== "pen") {
       return;
     }
     const point = getStagePoint(event);
     if (point) {
       setDraft((current) => {
         const last = current[current.length - 1];
-        const minDistance = tool === "highlighter" ? 0.003 : 0.0018;
+        const minDistance = 0.0018;
         if (last && Math.hypot(last.x - point.x, last.y - point.y) < minDistance) {
           return current;
         }
@@ -158,7 +233,36 @@ export default function AnnotationLayer({
   }
 
   function commitDraft() {
-    if (draft.length < 2 || (tool !== "pen" && tool !== "highlighter")) {
+    if (tool === "highlighter" && highlightDraft) {
+      const rect = normalizeRect(highlightDraft.start, highlightDraft.end);
+      setHighlightDraft(null);
+
+      if (rect.width < 0.004 || rect.height < 0.004) {
+        return;
+      }
+
+      const annotation: HighlightAnnotation = {
+        id: uuid(),
+        bookId,
+        pageNumber,
+        type: "highlight",
+        color: HIGHLIGHT_COLORS[highlighterColor],
+        opacity: 0.28,
+        rect,
+        selectedText: getTextForRect(rect),
+        createdAt: nowIso()
+      };
+
+      onAddAnnotation(annotation);
+      onHighlightCreated(annotation, {
+        x: Math.min(rect.x + rect.width, 0.92),
+        y: Math.min(rect.y + rect.height, 0.92),
+        pressure: 0.5
+      });
+      return;
+    }
+
+    if (draft.length < 2 || tool !== "pen") {
       setDraft([]);
       return;
     }
@@ -170,10 +274,10 @@ export default function AnnotationLayer({
       bookId,
       pageNumber,
       type: "stroke",
-      tool,
-      color: tool === "pen" ? PEN_COLORS[penColor] : HIGHLIGHT_COLORS[highlighterColor],
-      width: tool === "pen" ? thickness : Math.max(8, thickness * 5),
-      opacity: tool === "pen" ? 1 : 0.28,
+      tool: "pen",
+      color: PEN_COLORS[penColor],
+      width: thickness,
+      opacity: 1,
       points,
       createdAt: nowIso()
     });
@@ -237,6 +341,21 @@ export default function AnnotationLayer({
                 />
               );
             }
+            if (annotation.type === "highlight") {
+              return (
+                <Rect
+                  key={annotation.id}
+                  x={annotation.rect.x * pageSize.width}
+                  y={annotation.rect.y * pageSize.height}
+                  width={annotation.rect.width * pageSize.width}
+                  height={annotation.rect.height * pageSize.height}
+                  fill={annotation.color}
+                  opacity={annotation.opacity}
+                  listening={false}
+                  globalCompositeOperation="multiply"
+                />
+              );
+            }
             return (
               <Line
                 key={annotation.id}
@@ -251,16 +370,27 @@ export default function AnnotationLayer({
               />
             );
           })}
+          {highlightDraft && (
+            <Rect
+              x={Math.min(highlightDraft.start.x, highlightDraft.end.x) * pageSize.width}
+              y={Math.min(highlightDraft.start.y, highlightDraft.end.y) * pageSize.height}
+              width={Math.abs(highlightDraft.start.x - highlightDraft.end.x) * pageSize.width}
+              height={Math.abs(highlightDraft.start.y - highlightDraft.end.y) * pageSize.height}
+              fill={HIGHLIGHT_COLORS[highlighterColor]}
+              opacity={0.28}
+              globalCompositeOperation="multiply"
+            />
+          )}
           {draft.length > 1 && (
             <Line
               points={linePoints(draft)}
-              stroke={tool === "pen" ? PEN_COLORS[penColor] : HIGHLIGHT_COLORS[highlighterColor]}
-              strokeWidth={scaledWidth(tool === "pen" ? thickness : Math.max(8, thickness * 5), draft)}
-              opacity={tool === "pen" ? 1 : 0.28}
+              stroke={PEN_COLORS[penColor]}
+              strokeWidth={scaledWidth(thickness, draft)}
+              opacity={1}
               tension={0.42}
               lineCap="round"
               lineJoin="round"
-              globalCompositeOperation={tool === "highlighter" ? "multiply" : "source-over"}
+              globalCompositeOperation="source-over"
             />
           )}
         </Layer>

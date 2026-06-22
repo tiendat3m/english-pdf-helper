@@ -7,9 +7,21 @@ import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { configurePdfWorker } from "@/lib/pdfWorker";
-import type { Annotation, BookRecord, HighlightColor, InputMode, StrokeColor, ToolMode, VocabularyRecord } from "@/lib/types";
+import type {
+  Annotation,
+  BookRecord,
+  HighlightAnnotation,
+  HighlightColor,
+  InputMode,
+  PdfTextItem,
+  StickyNoteAnnotation,
+  StrokeColor,
+  ToolMode,
+  VocabularyRecord
+} from "@/lib/types";
 import { clamp } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/constants";
+import { v4 as uuid } from "uuid";
 
 const AnnotationLayer = dynamic(() => import("./AnnotationLayer"), { ssr: false });
 
@@ -72,7 +84,10 @@ interface PdfViewerProps {
   onAddAnnotation: (annotation: Annotation) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
-  onVocabularyCandidate: (record: Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt">) => void;
+  onVocabularyCandidate: (
+    record: Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt">,
+    mode?: "vocab" | "explain" | "grammar" | "note"
+  ) => void;
 }
 
 export default function PdfViewer({
@@ -100,6 +115,12 @@ export default function PdfViewer({
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isDocumentReady, setIsDocumentReady] = useState(false);
+  const [textItems, setTextItems] = useState<PdfTextItem[]>([]);
+  const [highlightPopup, setHighlightPopup] = useState<{
+    annotation: HighlightAnnotation;
+    anchor: { x: number; y: number };
+  } | null>(null);
+  const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
 
   useEffect(() => {
     configurePdfWorker();
@@ -109,7 +130,15 @@ export default function PdfViewer({
     setPdfError(null);
     setIsDocumentReady(false);
     setPageSize({ width: 0, height: 0 });
+    setTextItems([]);
+    setHighlightPopup(null);
   }, [book?.id]);
+
+  useEffect(() => {
+    setTextItems([]);
+    setHighlightPopup(null);
+    setPageSize({ width: 0, height: 0 });
+  }, [currentPage, renderWidth]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -140,10 +169,45 @@ export default function PdfViewer({
     };
   }, []);
 
-  const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
   const pdfFile = useMemo(() => book?.blob ?? null, [book?.blob]);
   const pageRenderKey = `${book?.id ?? "no-book"}-${currentPage}-${renderWidth}`;
   const totalPages = book?.totalPages || 0;
+
+  function extractTextItems() {
+    window.requestAnimationFrame(() => {
+      const canvas = pageShellRef.current?.querySelector("canvas");
+      const textSpans = pageShellRef.current?.querySelectorAll(".react-pdf__Page__textContent span");
+      if (!canvas || !textSpans?.length) {
+        setTextItems([]);
+        return;
+      }
+
+      const pageRect = canvas.getBoundingClientRect();
+      const items = Array.from(textSpans)
+        .map((span, order) => {
+          const text = span.textContent?.trim() ?? "";
+          const rect = span.getBoundingClientRect();
+          if (!text || rect.width <= 0 || rect.height <= 0) {
+            return null;
+          }
+
+          return {
+            id: `${currentPage}-${order}`,
+            text,
+            order,
+            box: {
+              x: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
+              y: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
+              width: clamp(rect.width / pageRect.width, 0, 1),
+              height: clamp(rect.height / pageRect.height, 0, 1)
+            }
+          };
+        })
+        .filter((item): item is PdfTextItem => Boolean(item));
+
+      setTextItems(items);
+    });
+  }
 
   function measurePage() {
     window.requestAnimationFrame(() => {
@@ -153,6 +217,40 @@ export default function PdfViewer({
         setPageSize({ width: rect.width, height: rect.height });
       }
     });
+  }
+
+  function handleHighlightCreated(annotation: HighlightAnnotation, anchor: { x: number; y: number }) {
+    setHighlightPopup({ annotation, anchor });
+  }
+
+  function highlightVocabularyRecord(annotation: HighlightAnnotation) {
+    return {
+      word: annotation.selectedText || "Highlighted passage",
+      sourceBookId: annotation.bookId,
+      sourceBookTitle: book?.title ?? "Unknown PDF",
+      sourcePage: annotation.pageNumber
+    };
+  }
+
+  function saveHighlightNote(annotation: HighlightAnnotation) {
+    if (!book) {
+      return;
+    }
+
+    const note: StickyNoteAnnotation = {
+      id: uuid(),
+      bookId: book.id,
+      pageNumber: currentPage,
+      type: "note",
+      x: clamp(annotation.rect.x + annotation.rect.width + 0.02, 0.02, 0.82),
+      y: clamp(annotation.rect.y, 0.02, 0.86),
+      text: annotation.selectedText || "Highlighted area",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    onAddAnnotation(note);
+    setHighlightPopup(null);
   }
 
   function handleSelectionCapture() {
@@ -230,6 +328,7 @@ export default function PdfViewer({
                       onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
                       onRenderError={(error) => setPdfError(error.message)}
                       onRenderSuccess={measurePage}
+                      onRenderTextLayerSuccess={extractTextItems}
                     />
                   </PdfPageErrorBoundary>
                 ) : (
@@ -248,10 +347,56 @@ export default function PdfViewer({
                     highlighterColor={highlighterColor}
                     thickness={thickness}
                     inputMode={inputMode}
+                    textItems={textItems}
                     onAddAnnotation={onAddAnnotation}
+                    onHighlightCreated={handleHighlightCreated}
                     onUpdateAnnotation={onUpdateAnnotation}
                     onDeleteAnnotation={onDeleteAnnotation}
                   />
+                )}
+                {highlightPopup && pageSize.width > 0 && (
+                  <div
+                    className="absolute z-40 w-72 rounded-lg border border-stone-200 bg-white p-3 text-sm shadow-paper dark:border-stone-700 dark:bg-stone-950"
+                    style={{
+                      left: Math.min(highlightPopup.anchor.x * pageSize.width + 8, pageSize.width - 300),
+                      top: Math.min(highlightPopup.anchor.y * pageSize.height + 8, pageSize.height - 220)
+                    }}
+                  >
+                    <div className="max-h-24 overflow-y-auto rounded-md bg-paper p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
+                      {highlightPopup.annotation.selectedText || "No PDF text detected in this highlight."}
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <button
+                        type="button"
+                        disabled={!highlightPopup.annotation.selectedText}
+                        onClick={() => {
+                          onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "vocab");
+                          setHighlightPopup(null);
+                        }}
+                        className="rounded-md bg-ink px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-paper dark:text-stone-950"
+                      >
+                        Save Vocabulary
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveHighlightNote(highlightPopup.annotation)}
+                        className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage dark:border-stone-700 dark:text-stone-100"
+                      >
+                        Add Note
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!highlightPopup.annotation.selectedText}
+                        onClick={() => {
+                          onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
+                          setHighlightPopup(null);
+                        }}
+                        className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
+                      >
+                        Explain with AI
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </Document>

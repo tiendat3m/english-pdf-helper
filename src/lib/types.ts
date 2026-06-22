@@ -48,6 +48,20 @@ export interface Point {
   pressure: number;
 }
 
+export interface NormalizedRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PdfTextItem {
+  id: string;
+  text: string;
+  order: number;
+  box: NormalizedRect;
+}
+
 export interface StrokeAnnotation {
   id: string;
   bookId: string;
@@ -58,6 +72,18 @@ export interface StrokeAnnotation {
   width: number;
   opacity: number;
   points: Point[];
+  createdAt: string;
+}
+
+export interface HighlightAnnotation {
+  id: string;
+  bookId: string;
+  pageNumber: number;
+  type: "highlight";
+  color: string;
+  opacity: number;
+  rect: NormalizedRect;
+  selectedText: string;
   createdAt: string;
 }
 
@@ -73,7 +99,7 @@ export interface StickyNoteAnnotation {
   updatedAt: string;
 }
 
-export type Annotation = StrokeAnnotation | StickyNoteAnnotation;
+export type Annotation = StrokeAnnotation | HighlightAnnotation | StickyNoteAnnotation;
 
 export interface BookmarkRecord {
   id: string;
