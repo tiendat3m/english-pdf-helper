@@ -5,11 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   BookOpen,
+  Brain,
   Flame,
   GraduationCap,
   Moon,
   NotebookPen,
   Play,
+  Sparkles,
   Star,
   Sun,
   TrendingUp
@@ -50,6 +52,18 @@ import { v4 as uuid } from "uuid";
 
 type VocabularyDraft = Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt"> | null;
 
+type AiMode = "vocab" | "explain" | "grammar" | "note";
+
+interface AiResult {
+  title: string;
+  summary: string;
+  meaning: string;
+  example: string;
+  grammar: string;
+  vietnamese: string;
+  suggestedNote: string;
+}
+
 const PdfViewer = dynamic(() => import("./PdfViewer"), {
   ssr: false,
   loading: () => (
@@ -66,7 +80,11 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [undoStack, setUndoStack] = useState<Annotation[]>([]);
   const [redoStack, setRedoStack] = useState<Annotation[]>([]);
-  const [vocabularyDraft, setVocabularyDraft] = useState<VocabularyDraft>(null);
+  const [aiSelection, setAiSelection] = useState<VocabularyDraft>(null);
+  const [aiMode, setAiMode] = useState<AiMode>("vocab");
+  const [aiResult, setAiResult] = useState<AiResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [vocabularyMeta, setVocabularyMeta] = useState({ meaning: "", example: "" });
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
@@ -333,23 +351,103 @@ export default function Dashboard() {
     setData((current) => ({ ...current, bookmarks: [...current.bookmarks, bookmark] }));
   }
 
+  async function handleAiAnalyze(mode: AiMode) {
+    if (!aiSelection) {
+      return;
+    }
+
+    setAiMode(mode);
+    setAiError(null);
+    setIsAiLoading(true);
+
+    try {
+      const response = await fetch("/api/ai/ielts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          text: aiSelection.word,
+          sourceBookTitle: aiSelection.sourceBookTitle,
+          sourcePage: aiSelection.sourcePage
+        })
+      });
+
+      const payload = (await response.json()) as Partial<AiResult> & { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "AI request failed.");
+      }
+
+      const nextResult: AiResult = {
+        title: payload.title || "AI study note",
+        summary: payload.summary || "",
+        meaning: payload.meaning || "",
+        example: payload.example || "",
+        grammar: payload.grammar || "",
+        vietnamese: payload.vietnamese || "",
+        suggestedNote: payload.suggestedNote || payload.summary || ""
+      };
+
+      setAiResult(nextResult);
+      setVocabularyMeta({
+        meaning: nextResult.meaning || nextResult.summary,
+        example: nextResult.example
+      });
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Could not analyze this selection.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  }
+
   async function handleVocabularySave() {
-    if (!vocabularyDraft) {
+    if (!aiSelection) {
       return;
     }
     const record: VocabularyRecord = {
-      ...vocabularyDraft,
+      ...aiSelection,
       id: uuid(),
-      meaning: vocabularyMeta.meaning,
-      example: vocabularyMeta.example,
+      meaning: vocabularyMeta.meaning || aiResult?.meaning || aiResult?.summary || "",
+      example: vocabularyMeta.example || aiResult?.example || "",
       status: "new",
       createdAt: nowIso(),
       updatedAt: nowIso()
     };
     await saveVocabulary(record);
     setData((current) => ({ ...current, vocabulary: [record, ...current.vocabulary] }));
-    setVocabularyDraft(null);
+    setAiSelection(null);
+    setAiResult(null);
+    setAiError(null);
     setVocabularyMeta({ meaning: "", example: "" });
+  }
+
+  function handleSaveAiNote() {
+    if (!activeBook || !aiSelection) {
+      return;
+    }
+
+    const text = [
+      aiResult?.title || "AI note",
+      aiResult?.suggestedNote || aiResult?.summary || aiSelection.word,
+      aiResult?.vietnamese ? `VN: ${aiResult.vietnamese}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    addAnnotation({
+      id: uuid(),
+      bookId: activeBook.id,
+      pageNumber: editor.currentPage,
+      type: "note",
+      x: 0.08,
+      y: 0.08,
+      text,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    });
+
+    setAiSelection(null);
+    setAiResult(null);
+    setAiError(null);
   }
 
   async function handleVocabularyStatus(record: VocabularyRecord, status: VocabStatus) {
@@ -585,7 +683,12 @@ export default function Dashboard() {
               onAddAnnotation={addAnnotation}
               onUpdateAnnotation={updateAnnotation}
               onDeleteAnnotation={removeAnnotation}
-              onVocabularyCandidate={setVocabularyDraft}
+              onVocabularyCandidate={(selection) => {
+                setAiSelection(selection);
+                setAiResult(null);
+                setAiError(null);
+                setVocabularyMeta({ meaning: "", example: "" });
+              }}
             />
           </section>
         </main>
@@ -607,14 +710,105 @@ export default function Dashboard() {
 
       {editor.activeTab === "progress" && <ProgressPanel data={activeData} />}
 
-      {vocabularyDraft && (
+      {aiSelection && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-paper dark:bg-stone-950">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Add to Vocabulary?</p>
-            <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">{vocabularyDraft.word}</h2>
+          <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-paper dark:bg-stone-950">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sage">
+                  <Sparkles className="h-4 w-4" />
+                  AI Study Coach
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">{aiSelection.word}</h2>
+                <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
+                  {aiSelection.sourceBookTitle} · page {aiSelection.sourcePage}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAiSelection(null);
+                  setAiResult(null);
+                  setAiError(null);
+                }}
+                className="rounded-md px-3 py-2 text-sm font-bold text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              {([
+                ["vocab", "Vocab"],
+                ["explain", "Explain"],
+                ["grammar", "Grammar"],
+                ["note", "Note"]
+              ] as Array<[AiMode, string]>).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => void handleAiAnalyze(mode)}
+                  disabled={isAiLoading}
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition disabled:cursor-wait disabled:opacity-60 ${
+                    aiMode === mode
+                      ? "border-sage bg-skysoft/60 text-stone-900 dark:bg-sage/20 dark:text-stone-50"
+                      : "border-stone-200 bg-white text-stone-600 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                  }`}
+                >
+                  <Brain className="h-4 w-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {isAiLoading && (
+              <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4 text-sm font-semibold text-stone-500 dark:border-stone-800 dark:bg-stone-900">
+                AI is reading this selection...
+              </div>
+            )}
+
+            {aiError && (
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+                {aiError}
+              </div>
+            )}
+
+            {aiResult && (
+              <section className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4 dark:border-stone-800 dark:bg-stone-900">
+                <h3 className="text-lg font-black text-stone-950 dark:text-stone-50">{aiResult.title}</h3>
+                {aiResult.summary && <p className="mt-2 text-sm leading-6 text-stone-700 dark:text-stone-200">{aiResult.summary}</p>}
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {aiResult.meaning && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Meaning</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.meaning}</p>
+                    </div>
+                  )}
+                  {aiResult.grammar && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Grammar</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.grammar}</p>
+                    </div>
+                  )}
+                  {aiResult.example && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Example</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.example}</p>
+                    </div>
+                  )}
+                  {aiResult.vietnamese && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Vietnamese</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.vietnamese}</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             <div className="mt-4 space-y-3">
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
-                Meaning
+                Vocabulary meaning
                 <input
                   value={vocabularyMeta.meaning}
                   onChange={(event) => setVocabularyMeta((current) => ({ ...current, meaning: event.target.value }))}
@@ -623,7 +817,7 @@ export default function Dashboard() {
                 />
               </label>
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
-                Example
+                Vocabulary example
                 <textarea
                   value={vocabularyMeta.example}
                   onChange={(event) => setVocabularyMeta((current) => ({ ...current, example: event.target.value }))}
@@ -632,13 +826,24 @@ export default function Dashboard() {
                 />
               </label>
             </div>
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setVocabularyDraft(null)}
+                onClick={() => {
+                  setAiSelection(null);
+                  setAiResult(null);
+                  setAiError(null);
+                }}
                 className="rounded-lg px-4 py-2 text-sm font-bold text-stone-600 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-800"
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAiNote}
+                className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-bold text-stone-700 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              >
+                Save Sticky Note
               </button>
               <button
                 type="button"

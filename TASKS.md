@@ -14,6 +14,7 @@
 - Implemented progress metrics and recent activity.
 - Added warm paper mode and dark mode.
 - Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.
+- Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Added documentation for future agents.
 
 ## Recommended Next Tasks

@@ -41,6 +41,12 @@ Pen pressure is read from `PointerEvent.pressure`. The renderer averages pressur
 
 Most interactions update React state optimistically, then persist to IndexedDB. The original PDF Blob remains untouched. Reopening a book restores the last page and zoom from the book record.
 
+## AI Study Coach
+
+`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls the OpenAI Responses API using `OPENAI_API_KEY`. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, or sticky-note creation.
+
+The browser never receives the API key. Set `OPENAI_MODEL` to change the model without code changes.
+
 ## SSR Boundaries
 
 The following modules should remain browser-only:

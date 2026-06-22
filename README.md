@@ -28,6 +28,19 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## AI Study Coach
+
+Create `.env.local` before using AI actions:
+
+```bash
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-5.5
+```
+
+Restart `npm run dev` after changing environment variables.
+
+In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coach can generate vocabulary notes, explanations, grammar notes, or sticky study notes. Results can be saved to the Vocabulary tab or as a sticky note on the current PDF page.
+
 ## Build
 
 ```bash
