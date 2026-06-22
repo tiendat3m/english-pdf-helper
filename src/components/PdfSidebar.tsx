@@ -212,8 +212,11 @@ export default function PdfSidebar({
           <div className="space-y-2">
             {activeVocabulary.map((item) => (
               <div key={item.id} className="rounded-md bg-paper p-2 text-xs text-stone-700 shadow-sm dark:bg-stone-800 dark:text-stone-100">
-                <div className="font-bold">{item.word}</div>
-                <div className="line-clamp-2">{item.meaning || "Meaning pending"}</div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-bold">{item.word}</span>
+                  {item.ipa && <span className="shrink-0 text-[11px] font-semibold text-sage">{item.ipa}</span>}
+                </div>
+                <div className="line-clamp-2">{item.vietnameseMeaning || item.meaning || "Meaning pending"}</div>
               </div>
             ))}
           </div>

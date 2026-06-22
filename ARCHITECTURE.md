@@ -18,7 +18,7 @@ IELTS PDF Notes is a Next.js App Router application with a browser-only learning
 - `Annotation`: stroke or sticky note records, keyed by book and page.
 - `BookmarkRecord`: category and page.
 - `PageStatusRecord`: page learning state.
-- `VocabularyRecord`: word, meaning, example, source book/page, and review status.
+- `VocabularyRecord`: word, IPA, English meaning, Vietnamese meaning, example, source book/page, and review status.
 - `StudyActivity`: recent activity timeline.
 
 ## PDF Rendering

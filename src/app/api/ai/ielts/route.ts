@@ -82,6 +82,7 @@ function fallbackJson(text: string, mode: AiMode) {
   return {
     title: modeLabels[mode],
     summary: text,
+    ipa: "",
     meaning: "",
     example: "",
     grammar: "",
@@ -97,7 +98,7 @@ function buildPrompt(body: AiRequestBody, text: string) {
 
   return `You are an IELTS Band 8 study coach.
 Return only valid compact JSON with these keys:
-title, summary, meaning, example, grammar, vietnamese, suggestedNote.
+title, summary, ipa, meaning, example, grammar, vietnamese, suggestedNote.
 
 Mode: ${body.mode} (${modeLabels[body.mode]})
 Source: ${source || "unknown"}
@@ -107,8 +108,9 @@ ${text}
 Rules:
 - Explain for IELTS learners, not generic English learners.
 - Keep output concise and useful for a PDF margin note.
-- If mode is vocab, focus on word/phrase meaning, collocation, IELTS usage, and one natural example.
+- If mode is vocab, focus on IPA pronunciation, word/phrase meaning, Vietnamese meaning, collocation, IELTS usage, and one natural example.
 - If mode is grammar, identify the grammar pattern and why it matters.
+- ipa should be a standard IPA transcription when the selected text is a word or short phrase; otherwise use an empty string.
 - vietnamese should briefly explain in Vietnamese.
 - suggestedNote should be ready to save as a sticky note.`;
 }

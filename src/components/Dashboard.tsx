@@ -49,13 +49,17 @@ import type {
 import { emptyAppData, formatPercent, getOverallProgress, getStudyStreak, nowIso } from "@/lib/utils";
 import { v4 as uuid } from "uuid";
 
-type VocabularyDraft = Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt"> | null;
+type VocabularyDraft = Omit<
+  VocabularyRecord,
+  "id" | "ipa" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
+> | null;
 
 type AiMode = "vocab" | "explain" | "grammar" | "note";
 
 interface AiResult {
   title: string;
   summary: string;
+  ipa: string;
   meaning: string;
   example: string;
   grammar: string;
@@ -88,7 +92,7 @@ export default function Dashboard() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [vocabularyMeta, setVocabularyMeta] = useState({ meaning: "", example: "" });
+  const [vocabularyMeta, setVocabularyMeta] = useState({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
@@ -423,6 +427,7 @@ export default function Dashboard() {
       const nextResult: AiResult = {
         title: payload.title || "AI study note",
         summary: payload.summary || "",
+        ipa: payload.ipa || "",
         meaning: payload.meaning || "",
         example: payload.example || "",
         grammar: payload.grammar || "",
@@ -432,7 +437,9 @@ export default function Dashboard() {
 
       setAiResult(nextResult);
       setVocabularyMeta({
+        ipa: nextResult.ipa,
         meaning: nextResult.meaning || nextResult.summary,
+        vietnameseMeaning: nextResult.vietnamese,
         example: nextResult.example
       });
     } catch (error) {
@@ -457,7 +464,9 @@ export default function Dashboard() {
     const record: VocabularyRecord = {
       ...aiSelection,
       id: uuid(),
+      ipa: vocabularyMeta.ipa || aiResult?.ipa || "",
       meaning: vocabularyMeta.meaning || aiResult?.meaning || aiResult?.summary || "",
+      vietnameseMeaning: vocabularyMeta.vietnameseMeaning || aiResult?.vietnamese || "",
       example: vocabularyMeta.example || aiResult?.example || "",
       status: "new",
       createdAt: nowIso(),
@@ -468,7 +477,7 @@ export default function Dashboard() {
     setAiSelection(null);
     setAiResult(null);
     setAiError(null);
-    setVocabularyMeta({ meaning: "", example: "" });
+    setVocabularyMeta({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
   }
 
   function handleSaveAiNote() {
@@ -818,7 +827,7 @@ export default function Dashboard() {
                   setAiMode(mode);
                   setAiResult(null);
                   setAiError(null);
-                  setVocabularyMeta({ meaning: "", example: "" });
+                  setVocabularyMeta({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
                   if (mode === "explain") {
                     void analyzeSelection(selection, mode);
                   }
@@ -866,6 +875,7 @@ export default function Dashboard() {
                   AI Study Coach
                 </p>
                 <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">{aiSelection.word}</h2>
+                {vocabularyMeta.ipa && <p className="mt-1 text-sm font-semibold text-sage">{vocabularyMeta.ipa}</p>}
                 <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
                   {aiSelection.sourceBookTitle} - page {aiSelection.sourcePage}
                 </p>
@@ -924,6 +934,12 @@ export default function Dashboard() {
                 <h3 className="text-lg font-black text-stone-950 dark:text-stone-50">{aiResult.title}</h3>
                 {aiResult.summary && <p className="mt-2 text-sm leading-6 text-stone-700 dark:text-stone-200">{aiResult.summary}</p>}
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {aiResult.ipa && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">IPA</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.ipa}</p>
+                    </div>
+                  )}
                   {aiResult.meaning && (
                     <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
                       <div className="text-xs font-bold uppercase tracking-wide text-sage">Meaning</div>
@@ -954,12 +970,30 @@ export default function Dashboard() {
 
             <div className="mt-4 space-y-3">
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
-                Vocabulary meaning
+                IPA
+                <input
+                  value={vocabularyMeta.ipa}
+                  onChange={(event) => setVocabularyMeta((current) => ({ ...current, ipa: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                  placeholder="/səbˈstænʃəl/"
+                />
+              </label>
+              <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                English meaning
                 <input
                   value={vocabularyMeta.meaning}
                   onChange={(event) => setVocabularyMeta((current) => ({ ...current, meaning: event.target.value }))}
                   className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
                   placeholder="IELTS meaning"
+                />
+              </label>
+              <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                Vietnamese meaning
+                <input
+                  value={vocabularyMeta.vietnameseMeaning}
+                  onChange={(event) => setVocabularyMeta((current) => ({ ...current, vietnameseMeaning: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                  placeholder="Nghĩa tiếng Việt"
                 />
               </label>
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">

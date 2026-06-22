@@ -102,8 +102,13 @@ export default function StudyWorkspacePanel({
                 onClick={() => onJumpToPage(item.sourcePage)}
                 className="w-full rounded-md bg-stone-50 p-2 text-left text-xs transition hover:bg-skysoft/60 dark:bg-stone-950 dark:hover:bg-stone-800"
               >
-                <div className="font-black text-stone-900 dark:text-stone-50">{item.word}</div>
-                <div className="mt-1 line-clamp-2 text-stone-500 dark:text-stone-400">{item.meaning || "Meaning pending"}</div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-black text-stone-900 dark:text-stone-50">{item.word}</span>
+                  {item.ipa && <span className="shrink-0 text-[11px] font-semibold text-sage">{item.ipa}</span>}
+                </div>
+                <div className="mt-1 line-clamp-2 text-stone-500 dark:text-stone-400">
+                  {item.vietnameseMeaning || item.meaning || "Meaning pending"}
+                </div>
                 <div className="mt-1 font-semibold text-sage">page {item.sourcePage} - {item.status}</div>
               </button>
             ))

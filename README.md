@@ -16,7 +16,7 @@ IELTS PDF Notes is evolving into an IELTS OS: a local-first study workspace for 
 - Annotate pages with pressure-aware pen strokes, transparent highlighter strokes, sticky notes, and eraser actions.
 - Create text-aware rectangle highlights that detect covered PDF text and offer Vocabulary, Note, and AI Explain actions.
 - Save bookmarks by IELTS category and mark pages as Not Started, Learning, Done, or Need Review.
-- Select text in the PDF text layer and save it into an Anki-inspired vocabulary table.
+- Select text in the PDF text layer and save it into an Anki-inspired vocabulary table with IPA, English meaning, Vietnamese meaning, and examples.
 - Track books, studied pages, notes, vocabulary, streak, recent activity, and overall progress.
 - Use keyboard shortcuts: `P`, `H`, `N`, `E`, `Ctrl+Z`, `Ctrl+Y`, `+`, `-`, and Space for pan mode.
 - Switch between Light, Warm Paper, and Dark themes.
@@ -44,7 +44,7 @@ GEMINI_MODEL=gemini-3-flash-preview
 
 Restart `npm run dev` after changing environment variables.
 
-In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coach can generate vocabulary notes, explanations, grammar notes, or sticky study notes. Results can be saved to the Vocabulary tab or as a sticky note on the current PDF page.
+In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coach can generate vocabulary notes with IPA, English meaning, Vietnamese meaning, explanations, grammar notes, or sticky study notes. Results can be saved to the Vocabulary tab or as a sticky note on the current PDF page.
 
 ## Build
 

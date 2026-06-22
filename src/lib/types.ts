@@ -121,7 +121,9 @@ export interface PageStatusRecord {
 export interface VocabularyRecord {
   id: string;
   word: string;
+  ipa?: string;
   meaning: string;
+  vietnameseMeaning?: string;
   example: string;
   sourceBookId: string;
   sourceBookTitle: string;

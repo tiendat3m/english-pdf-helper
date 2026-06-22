@@ -11,6 +11,7 @@
 - Implemented pen, highlighter, sticky notes, eraser, undo, redo, and save controls.
 - Implemented page status and bookmark categories.
 - Implemented vocabulary capture, search, filter, sort, status updates, and delete.
+- Added IPA and Vietnamese meaning fields to saved vocabulary.
 - Implemented progress metrics and recent activity.
 - Added warm paper mode and dark mode.
 - Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.

@@ -30,7 +30,8 @@ export default function VocabularyPanel({
 }: VocabularyPanelProps) {
   const visible = vocabulary
     .filter((item) => {
-      const haystack = `${item.word} ${item.meaning} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
+      const haystack =
+        `${item.word} ${item.ipa ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
       return haystack.includes(search.toLowerCase()) && (filter === "all" || item.status === filter);
     })
     .sort((a, b) => {
@@ -85,7 +86,7 @@ export default function VocabularyPanel({
         </div>
 
         <div className="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-paper dark:border-stone-800 dark:bg-stone-950">
-          <div className="grid grid-cols-[1.1fr_1.4fr_1.4fr_1fr_0.8fr_44px] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
+          <div className="grid grid-cols-[1.1fr_1.6fr_1.4fr_1fr_0.8fr_44px] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
             <span>Word</span>
             <span>Meaning</span>
             <span>Example</span>
@@ -97,10 +98,16 @@ export default function VocabularyPanel({
             visible.map((item) => (
               <div
                 key={item.id}
-                className="grid grid-cols-1 gap-3 border-b border-stone-100 px-4 py-4 text-sm last:border-b-0 dark:border-stone-800 md:grid-cols-[1.1fr_1.4fr_1.4fr_1fr_0.8fr_44px]"
+                className="grid grid-cols-1 gap-3 border-b border-stone-100 px-4 py-4 text-sm last:border-b-0 dark:border-stone-800 md:grid-cols-[1.1fr_1.6fr_1.4fr_1fr_0.8fr_44px]"
               >
-                <div className="font-bold text-stone-950 dark:text-stone-50">{item.word}</div>
-                <div className="text-stone-700 dark:text-stone-200">{item.meaning || "Add meaning during review"}</div>
+                <div>
+                  <div className="font-bold text-stone-950 dark:text-stone-50">{item.word}</div>
+                  {item.ipa && <div className="mt-1 text-xs font-semibold text-sage">{item.ipa}</div>}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-stone-700 dark:text-stone-200">{item.meaning || "Add English meaning during review"}</div>
+                  <div className="text-xs leading-5 text-stone-500 dark:text-stone-400">{item.vietnameseMeaning || "Thêm nghĩa tiếng Việt"}</div>
+                </div>
                 <div className="text-stone-600 dark:text-stone-300">{item.example || "Add your own sentence"}</div>
                 <div className="text-xs text-stone-500 dark:text-stone-400">
                   <div className="font-semibold">{item.sourceBookTitle}</div>
