@@ -52,44 +52,21 @@ export default function PdfViewer({
 }: PdfViewerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const pageShellRef = useRef<HTMLDivElement>(null);
-  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [isDocumentReady, setIsDocumentReady] = useState(false);
 
   useEffect(() => {
     configurePdfWorker();
   }, []);
 
   useEffect(() => {
-    let isCancelled = false;
-
-    if (!book) {
-      setPdfBytes(null);
-      return;
-    }
-
     setPdfError(null);
-
-    book.blob
-      .arrayBuffer()
-      .then((buffer) => {
-        if (!isCancelled) {
-          setPdfBytes(new Uint8Array(buffer));
-        }
-      })
-      .catch((error: unknown) => {
-        if (!isCancelled) {
-          setPdfBytes(null);
-          setPdfError(error instanceof Error ? error.message : "Could not read this PDF from local storage.");
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [book]);
+    setIsDocumentReady(false);
+    setPageSize({ width: 0, height: 0 });
+  }, [book?.id]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -121,7 +98,7 @@ export default function PdfViewer({
   }, []);
 
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
-  const pdfFile = useMemo(() => (pdfBytes ? { data: pdfBytes } : null), [pdfBytes]);
+  const pdfFile = useMemo(() => book?.blob ?? null, [book?.blob]);
   const totalPages = book?.totalPages || 0;
 
   function measurePage() {
@@ -173,6 +150,7 @@ export default function PdfViewer({
         <div className="mx-auto w-fit" ref={pageShellRef}>
           {pdfFile ? (
             <Document
+              key={book.id}
               file={pdfFile}
               loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Loading PDF...</div>}
               error={
@@ -181,20 +159,38 @@ export default function PdfViewer({
                   {pdfError && <div className="mt-2 text-xs leading-5 text-rose-500">{pdfError}</div>}
                 </div>
               }
-              onLoadError={(error) => setPdfError(error.message)}
-              onSourceError={(error) => setPdfError(error.message)}
-              onLoadSuccess={({ numPages }) => onDocumentLoaded(numPages)}
+              onLoadError={(error) => {
+                setIsDocumentReady(false);
+                setPdfError(error.message);
+              }}
+              onSourceError={(error) => {
+                setIsDocumentReady(false);
+                setPdfError(error.message);
+              }}
+              onLoadSuccess={({ numPages }) => {
+                setIsDocumentReady(true);
+                onDocumentLoaded(numPages);
+              }}
             >
               <div className="relative isolate">
-                <Page
-                  pageNumber={currentPage}
-                  width={renderWidth}
-                  renderAnnotationLayer
-                  renderTextLayer
-                  loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Rendering page...</div>}
-                  onRenderSuccess={measurePage}
-                />
-                {pageSize.width > 0 && (
+                {isDocumentReady ? (
+                  <Page
+                    key={`${book.id}-${currentPage}-${renderWidth}`}
+                    pageNumber={currentPage}
+                    width={renderWidth}
+                    renderAnnotationLayer
+                    renderTextLayer
+                    loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Rendering page...</div>}
+                    onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
+                    onRenderError={(error) => setPdfError(error.message)}
+                    onRenderSuccess={measurePage}
+                  />
+                ) : (
+                  <div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool dark:bg-stone-900 dark:text-stone-300">
+                    Loading PDF document...
+                  </div>
+                )}
+                {isDocumentReady && pageSize.width > 0 && (
                   <AnnotationLayer
                     bookId={book.id}
                     pageNumber={currentPage}
