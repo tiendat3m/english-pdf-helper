@@ -6,6 +6,8 @@ export type WorkspaceMode = "focus" | "split";
 
 export type InputMode = "all" | "stylus";
 
+export type ThemeMode = "light" | "warm" | "dark";
+
 export type StrokeColor = "black" | "blue" | "red";
 
 export type HighlightColor = "yellow" | "green" | "pink";
@@ -128,8 +130,7 @@ export interface EditorState {
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
   thickness: number;
-  isDarkMode: boolean;
-  isPaperMode: boolean;
+  theme: ThemeMode;
   workspaceMode: WorkspaceMode;
   inputMode: InputMode;
   dailyPageGoal: number;

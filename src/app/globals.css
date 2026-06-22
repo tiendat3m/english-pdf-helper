@@ -11,6 +11,10 @@
   color-scheme: dark;
 }
 
+.theme-warm {
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -24,9 +28,16 @@ body {
   margin: 0;
   background:
     radial-gradient(circle at top left, rgba(216, 237, 245, 0.42), transparent 30rem),
-    linear-gradient(135deg, #fbf8f1 0%, #f1f6f1 48%, #f8f5ee 100%);
+    linear-gradient(135deg, #f8fbff 0%, #f7faf7 48%, #f6f7f4 100%);
   color: #25211b;
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.theme-warm body {
+  background:
+    radial-gradient(circle at top left, rgba(244, 209, 138, 0.38), transparent 28rem),
+    linear-gradient(135deg, #f9f6ee 0%, #f5ecd9 52%, #fbf4e4 100%);
+  color: #2e2e2e;
 }
 
 .dark body {
@@ -34,6 +45,24 @@ body {
     radial-gradient(circle at top left, rgba(108, 143, 125, 0.24), transparent 30rem),
     linear-gradient(135deg, #1e201d 0%, #171a1f 100%);
   color: #f7f0e4;
+}
+
+.theme-warm .bg-white,
+.theme-warm .bg-white\/78,
+.theme-warm .bg-white\/80,
+.theme-warm .bg-white\/82,
+.theme-warm .bg-white\/85,
+.theme-warm .bg-white\/86,
+.theme-warm .bg-white\/90 {
+  background-color: rgba(255, 250, 240, 0.92);
+}
+
+.theme-warm .bg-stone-50 {
+  background-color: #f6eedf;
+}
+
+.theme-warm .border-stone-200 {
+  border-color: #e4d7c2;
 }
 
 button,

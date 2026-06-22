@@ -18,7 +18,7 @@ IELTS PDF Notes is evolving into an IELTS OS: a local-first study workspace for 
 - Select text in the PDF text layer and save it into an Anki-inspired vocabulary table.
 - Track books, studied pages, notes, vocabulary, streak, recent activity, and overall progress.
 - Use keyboard shortcuts: `P`, `H`, `N`, `E`, `Ctrl+Z`, `Ctrl+Y`, `+`, `-`, and Space for pan mode.
-- Toggle warm paper mode and dark mode.
+- Switch between Light, Warm Paper, and Dark themes.
 - Use Focus mode for a centered PDF or Split mode for PDF + Notebook + Vocabulary + Review Map.
 - Use Stylus-only mode for XP-Pen, Huion, Wacom, and tablet writing sessions.
 - Clear all annotations on the current page, with undo/redo recovery.

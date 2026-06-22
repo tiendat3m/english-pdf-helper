@@ -8,12 +8,10 @@ import {
   Brain,
   Flame,
   GraduationCap,
-  Moon,
   NotebookPen,
   Play,
   Sparkles,
   Star,
-  Sun,
   TrendingUp
 } from "lucide-react";
 import PdfUploader from "./PdfUploader";
@@ -100,8 +98,9 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", editor.isDarkMode);
-  }, [editor.isDarkMode]);
+    document.documentElement.classList.toggle("dark", editor.theme === "dark");
+    document.documentElement.classList.toggle("theme-warm", editor.theme === "warm");
+  }, [editor.theme]);
 
   const activeBooks = useMemo(() => data.books.filter((book) => !book.deletedAt), [data.books]);
   const activeBookIds = useMemo(() => new Set(activeBooks.map((book) => book.id)), [activeBooks]);
@@ -580,7 +579,11 @@ export default function Dashboard() {
   }
 
   return (
-    <div className={editor.isPaperMode ? "min-h-screen bg-paper/35 dark:bg-transparent" : "min-h-screen"}>
+    <div
+      className={`min-h-screen ${
+        editor.theme === "warm" ? "bg-[#f9f6ee]" : editor.theme === "dark" ? "bg-stone-950" : "bg-slate-50"
+      }`}
+    >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <button type="button" onClick={() => switchTab("learn")} className="flex items-center gap-3">
@@ -599,23 +602,22 @@ export default function Dashboard() {
             {tabButton("progress", "Progress")}
           </nav>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              title="Toggle paper mode"
-              onClick={() => setEditor((current) => ({ ...current, isPaperMode: !current.isPaperMode }))}
-              className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-bold text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-            >
-              Paper
-            </button>
-            <button
-              type="button"
-              title="Toggle dark mode"
-              onClick={() => setEditor((current) => ({ ...current, isDarkMode: !current.isDarkMode }))}
-              className="grid h-10 w-10 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-            >
-              {editor.isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+          <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+            {(["light", "warm", "dark"] as const).map((theme) => (
+              <button
+                key={theme}
+                type="button"
+                title={`Use ${theme} theme`}
+                onClick={() => setEditor((current) => ({ ...current, theme }))}
+                className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
+                  editor.theme === theme
+                    ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                    : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                }`}
+              >
+                {theme}
+              </button>
+            ))}
           </div>
         </div>
       </header>
