@@ -6,6 +6,7 @@ export const DEFAULT_ZOOM = 1.15;
 export const MIN_ZOOM = 0.6;
 export const MAX_ZOOM = 2.4;
 export const ZOOM_STEP = 0.12;
+export const DELETED_BOOK_RETENTION_DAYS = 30;
 
 export const PEN_COLORS: Record<StrokeColor, string> = {
   black: "#1f2933",

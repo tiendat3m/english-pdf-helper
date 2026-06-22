@@ -12,6 +12,7 @@ import type {
   StudyActivity,
   VocabularyRecord
 } from "./types";
+import { DELETED_BOOK_RETENTION_DAYS } from "./constants";
 import { bookProgress, emptyAppData, nowIso, stripPdfExtension } from "./utils";
 
 interface IeltsPdfNotesDB extends DBSchema {
@@ -86,6 +87,7 @@ export async function loadAppData(): Promise<AppData> {
   }
 
   const db = await getDb();
+  await purgeExpiredDeletedBooks(db);
   const [books, annotations, bookmarks, pageStatuses, vocabulary, activities] = await Promise.all([
     db.getAll("books"),
     db.getAll("annotations"),
@@ -140,6 +142,70 @@ export async function touchBook(book: BookRecord, patch: Partial<BookRecord>) {
   const next = { ...book, ...patch, updatedAt: nowIso(), lastOpenedAt: nowIso() };
   await saveBook(next);
   return next;
+}
+
+export async function softDeleteBook(bookId: string) {
+  const db = await getDb();
+  const book = await db.get("books", bookId);
+  if (!book) {
+    return null;
+  }
+
+  const deletedBook: BookRecord = {
+    ...book,
+    deletedAt: nowIso(),
+    updatedAt: nowIso()
+  };
+
+  await db.put("books", deletedBook);
+  await addActivity({ type: "book-deleted", label: `Moved ${book.title} to Recently Deleted` });
+  return deletedBook;
+}
+
+export async function restoreBook(bookId: string) {
+  const db = await getDb();
+  const book = await db.get("books", bookId);
+  if (!book) {
+    return null;
+  }
+
+  const restoredBook: BookRecord = {
+    ...book,
+    updatedAt: nowIso(),
+    lastOpenedAt: nowIso()
+  };
+  delete restoredBook.deletedAt;
+
+  await db.put("books", restoredBook);
+  await addActivity({ type: "book-restored", label: `Restored ${book.title}` });
+  return restoredBook;
+}
+
+async function purgeExpiredDeletedBooks(db: IDBPDatabase<IeltsPdfNotesDB>) {
+  const books = await db.getAll("books");
+  const cutoff = Date.now() - DELETED_BOOK_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const expiredBooks = books.filter((book) => book.deletedAt && new Date(book.deletedAt).getTime() <= cutoff);
+
+  await Promise.all(expiredBooks.map((book) => permanentlyDeleteBook(db, book.id)));
+}
+
+async function permanentlyDeleteBook(db: IDBPDatabase<IeltsPdfNotesDB>, bookId: string) {
+  const [annotations, bookmarks, pageStatuses, vocabulary] = await Promise.all([
+    db.getAll("annotations"),
+    db.getAll("bookmarks"),
+    db.getAll("pageStatuses"),
+    db.getAll("vocabulary")
+  ]);
+
+  const tx = db.transaction(["books", "annotations", "bookmarks", "pageStatuses", "vocabulary"], "readwrite");
+  await Promise.all([
+    tx.objectStore("books").delete(bookId),
+    ...annotations.filter((item) => item.bookId === bookId).map((item) => tx.objectStore("annotations").delete(item.id)),
+    ...bookmarks.filter((item) => item.bookId === bookId).map((item) => tx.objectStore("bookmarks").delete(item.id)),
+    ...pageStatuses.filter((item) => item.bookId === bookId).map((item) => tx.objectStore("pageStatuses").delete(item.id)),
+    ...vocabulary.filter((item) => item.sourceBookId === bookId).map((item) => tx.objectStore("vocabulary").delete(item.id)),
+    tx.done
+  ]);
 }
 
 export async function saveAnnotation(annotation: Annotation) {

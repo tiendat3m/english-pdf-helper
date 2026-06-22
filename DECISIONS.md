@@ -41,3 +41,9 @@ Reason: Native text editing, textarea behavior, and delete controls are more rel
 Decision: Update React state before IndexedDB writes complete for most interactions.
 
 Reason: Drawing and studying should feel immediate. IndexedDB writes are local and fast enough to persist right after state updates.
+
+## Recently Deleted Books
+
+Decision: Deleting a saved book marks it with `deletedAt` and hides it from the active library, vocabulary, and progress views. It remains restorable for 30 days, then local cleanup permanently removes the book and related annotations, bookmarks, page statuses, and vocabulary.
+
+Reason: Users need a recovery path for accidental deletes, while local storage should not keep abandoned large PDF blobs forever.

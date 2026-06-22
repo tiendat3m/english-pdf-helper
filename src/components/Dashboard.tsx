@@ -25,11 +25,13 @@ import {
   deleteVocabulary,
   importBook,
   loadAppData,
+  restoreBook,
   saveAnnotation,
   saveBook,
   saveBookmark,
   savePageStatus,
   saveVocabulary,
+  softDeleteBook,
   touchBook
 } from "@/lib/db";
 import { initialEditorState, shortcutToTool } from "@/lib/editorStore";
@@ -78,21 +80,39 @@ export default function Dashboard() {
     document.documentElement.classList.toggle("dark", editor.isDarkMode);
   }, [editor.isDarkMode]);
 
+  const activeBooks = useMemo(() => data.books.filter((book) => !book.deletedAt), [data.books]);
+  const activeBookIds = useMemo(() => new Set(activeBooks.map((book) => book.id)), [activeBooks]);
+  const deletedBooks = useMemo(
+    () => data.books.filter((book) => book.deletedAt).sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? "")),
+    [data.books]
+  );
+  const activeData = useMemo(
+    () => ({
+      ...data,
+      books: activeBooks,
+      annotations: data.annotations.filter((annotation) => activeBookIds.has(annotation.bookId)),
+      bookmarks: data.bookmarks.filter((bookmark) => activeBookIds.has(bookmark.bookId)),
+      pageStatuses: data.pageStatuses.filter((status) => activeBookIds.has(status.bookId)),
+      vocabulary: data.vocabulary.filter((item) => activeBookIds.has(item.sourceBookId))
+    }),
+    [activeBookIds, activeBooks, data]
+  );
+
   const activeBook = useMemo(
-    () => data.books.find((book) => book.id === editor.activeBookId) ?? data.books[0] ?? null,
-    [data.books, editor.activeBookId]
+    () => activeBooks.find((book) => book.id === editor.activeBookId) ?? activeBooks[0] ?? null,
+    [activeBooks, editor.activeBookId]
   );
 
   useEffect(() => {
-    if (!editor.activeBookId && data.books[0]) {
+    if ((!editor.activeBookId || !activeBooks.some((book) => book.id === editor.activeBookId)) && activeBooks[0]) {
       setEditor((current) => ({
         ...current,
-        activeBookId: data.books[0].id,
-        currentPage: data.books[0].lastPage || 1,
-        zoom: data.books[0].zoom || DEFAULT_ZOOM
+        activeBookId: activeBooks[0].id,
+        currentPage: activeBooks[0].lastPage || 1,
+        zoom: activeBooks[0].zoom || DEFAULT_ZOOM
       }));
     }
-  }, [data.books, editor.activeBookId]);
+  }, [activeBooks, editor.activeBookId]);
 
   useEffect(() => {
     function handleKeyboard(event: KeyboardEvent) {
@@ -152,7 +172,7 @@ export default function Dashboard() {
   }
 
   async function openBook(bookId: string) {
-    const book = data.books.find((item) => item.id === bookId);
+    const book = activeBooks.find((item) => item.id === bookId);
     if (!book) {
       return;
     }
@@ -165,6 +185,43 @@ export default function Dashboard() {
       zoom: book.zoom || DEFAULT_ZOOM
     }));
     setIsWorkspaceOpen(true);
+    await refreshData();
+  }
+
+  async function handleDeleteBook(bookId: string) {
+    const deletedBook = await softDeleteBook(bookId);
+    if (!deletedBook) {
+      return;
+    }
+
+    const remainingBooks = activeBooks.filter((book) => book.id !== bookId);
+    if (editor.activeBookId === bookId) {
+      const nextBook = remainingBooks[0] ?? null;
+      setEditor((current) => ({
+        ...current,
+        activeBookId: nextBook?.id ?? null,
+        currentPage: nextBook?.lastPage ?? 1,
+        zoom: nextBook?.zoom ?? DEFAULT_ZOOM
+      }));
+      if (!nextBook) {
+        setIsWorkspaceOpen(false);
+      }
+    }
+    await refreshData();
+  }
+
+  async function handleRestoreBook(bookId: string) {
+    const restoredBook = await restoreBook(bookId);
+    if (!restoredBook) {
+      return;
+    }
+
+    setEditor((current) => ({
+      ...current,
+      activeBookId: restoredBook.id,
+      currentPage: restoredBook.lastPage || 1,
+      zoom: restoredBook.zoom || DEFAULT_ZOOM
+    }));
     await refreshData();
   }
 
@@ -318,14 +375,14 @@ export default function Dashboard() {
 
   const stats = [
     { label: "Study streak", value: `${getStudyStreak(data.activities)} days`, icon: Flame },
-    { label: "Total books", value: data.books.length.toString(), icon: BookOpen },
-    { label: "Saved vocabulary", value: data.vocabulary.length.toString(), icon: Star },
-    { label: "Notes count", value: data.annotations.filter((annotation) => annotation.type === "note").length.toString(), icon: NotebookPen },
-    { label: "Overall progress", value: formatPercent(getOverallProgress(data.books)), icon: TrendingUp }
+    { label: "Total books", value: activeBooks.length.toString(), icon: BookOpen },
+    { label: "Saved vocabulary", value: activeData.vocabulary.length.toString(), icon: Star },
+    { label: "Notes count", value: activeData.annotations.filter((annotation) => annotation.type === "note").length.toString(), icon: NotebookPen },
+    { label: "Overall progress", value: formatPercent(getOverallProgress(activeBooks)), icon: TrendingUp }
   ];
 
-  const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = data.books.length
-    ? data.books.slice(0, 3).map((book) => ({
+  const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = activeBooks.length
+    ? activeBooks.slice(0, 3).map((book) => ({
         title: book.title,
         lastPage: book.lastPage.toString(),
         progress: book.progress,
@@ -469,16 +526,19 @@ export default function Dashboard() {
       {editor.activeTab === "learn" && isWorkspaceOpen && (
         <main className="flex h-[calc(100vh-73px)] min-h-[680px] flex-col lg:flex-row">
           <PdfSidebar
-            books={data.books}
+            books={activeBooks}
+            deletedBooks={deletedBooks}
             activeBookId={activeBook?.id ?? null}
             searchQuery={editor.searchQuery}
             bookmarks={data.bookmarks}
             pageStatuses={data.pageStatuses}
-            vocabulary={data.vocabulary}
+            vocabulary={activeData.vocabulary}
             currentPage={editor.currentPage}
             onSearchChange={(value) => setEditor((current) => ({ ...current, searchQuery: value }))}
             onImport={handleImport}
             onOpenBook={openBook}
+            onDeleteBook={handleDeleteBook}
+            onRestoreBook={handleRestoreBook}
             onAddBookmark={handleAddBookmark}
             onSetPageStatus={handleSetPageStatus}
             onJumpToPage={changePage}
@@ -533,7 +593,7 @@ export default function Dashboard() {
 
       {editor.activeTab === "vocabulary" && (
         <VocabularyPanel
-          vocabulary={data.vocabulary}
+          vocabulary={activeData.vocabulary}
           search={vocabSearch}
           filter={vocabFilter}
           sort={vocabSort}
@@ -545,7 +605,7 @@ export default function Dashboard() {
         />
       )}
 
-      {editor.activeTab === "progress" && <ProgressPanel data={data} />}
+      {editor.activeTab === "progress" && <ProgressPanel data={activeData} />}
 
       {vocabularyDraft && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">

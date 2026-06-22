@@ -13,6 +13,7 @@
 - Implemented vocabulary capture, search, filter, sort, status updates, and delete.
 - Implemented progress metrics and recent activity.
 - Added warm paper mode and dark mode.
+- Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.
 - Added documentation for future agents.
 
 ## Recommended Next Tasks

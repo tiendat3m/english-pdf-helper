@@ -33,6 +33,7 @@ export interface BookRecord {
   totalPages: number;
   zoom: number;
   progress: number;
+  deletedAt?: string;
 }
 
 export interface Point {
@@ -100,7 +101,7 @@ export interface VocabularyRecord {
 
 export interface StudyActivity {
   id: string;
-  type: "book-opened" | "page-status" | "vocabulary" | "note" | "bookmark";
+  type: "book-opened" | "book-deleted" | "book-restored" | "page-status" | "vocabulary" | "note" | "bookmark";
   label: string;
   createdAt: string;
 }
