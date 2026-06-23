@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bookmark, BookOpen, Clock3, GraduationCap, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Bookmark, BookOpen, Clock3, GraduationCap, RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
 import PdfUploader from "./PdfUploader";
 import { BOOKMARK_CATEGORIES, DELETED_BOOK_RETENTION_DAYS, PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
 import type { BookRecord, BookmarkRecord, PageStatus, PageStatusRecord, VocabularyRecord } from "@/lib/types";
@@ -54,8 +54,10 @@ export default function PdfSidebar({
   const activeVocabulary = vocabulary.filter((item) => item.sourceBookId === activeBookId).slice(0, 5);
   const deletedBookIds = useMemo(() => deletedBooks.map((book) => book.id), [deletedBooks]);
   const [selectedDeletedIds, setSelectedDeletedIds] = useState<string[]>([]);
+  const [pendingPermanentDeleteIds, setPendingPermanentDeleteIds] = useState<string[]>([]);
   const selectedDeletedCount = selectedDeletedIds.length;
   const isAllDeletedSelected = deletedBookIds.length > 0 && selectedDeletedCount === deletedBookIds.length;
+  const pendingPermanentDeleteBooks = deletedBooks.filter((book) => pendingPermanentDeleteIds.includes(book.id));
 
   useEffect(() => {
     setSelectedDeletedIds((current) => current.filter((bookId) => deletedBookIds.includes(bookId)));
@@ -77,23 +79,26 @@ export default function PdfSidebar({
     setSelectedDeletedIds(isAllDeletedSelected ? [] : deletedBookIds);
   }
 
-  function confirmPermanentDelete(bookIds: string[]) {
+  function requestPermanentDelete(bookIds: string[]) {
     if (!bookIds.length) {
       return;
     }
 
-    const message =
-      bookIds.length === 1
-        ? "Permanently delete this book and all its notes, annotations, vocabulary, and progress?"
-        : `Permanently delete ${bookIds.length} books and all their notes, annotations, vocabulary, and progress?`;
+    setPendingPermanentDeleteIds(bookIds);
+  }
 
-    if (window.confirm(message)) {
-      onPermanentDeleteBooks(bookIds);
-      setSelectedDeletedIds((current) => current.filter((bookId) => !bookIds.includes(bookId)));
+  function confirmPermanentDelete() {
+    if (!pendingPermanentDeleteIds.length) {
+      return;
     }
+
+    onPermanentDeleteBooks(pendingPermanentDeleteIds);
+    setSelectedDeletedIds((current) => current.filter((bookId) => !pendingPermanentDeleteIds.includes(bookId)));
+    setPendingPermanentDeleteIds([]);
   }
 
   return (
+    <>
     <aside className="flex h-full w-full flex-col gap-4 overflow-y-auto border-r border-stone-200 bg-white/82 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/82 lg:w-80">
       <div>
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Learn</p>
@@ -178,7 +183,7 @@ export default function PdfSidebar({
               <span className="text-xs font-bold text-rose-700 dark:text-rose-200">{selectedDeletedCount} selected</span>
               <button
                 type="button"
-                onClick={() => confirmPermanentDelete(selectedDeletedIds)}
+                onClick={() => requestPermanentDelete(selectedDeletedIds)}
                 className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-xs font-bold text-white transition hover:bg-rose-700"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -215,7 +220,7 @@ export default function PdfSidebar({
                   </button>
                   <button
                     type="button"
-                    onClick={() => confirmPermanentDelete([book.id])}
+                    onClick={() => requestPermanentDelete([book.id])}
                     className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-bold text-rose-600 transition hover:bg-rose-50 dark:border-rose-900 dark:bg-stone-950 dark:hover:bg-rose-950"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -303,5 +308,56 @@ export default function PdfSidebar({
         )}
       </section>
     </aside>
+    {pendingPermanentDeleteIds.length > 0 && (
+      <div className="fixed inset-0 z-[80] grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="permanent-delete-title"
+          className="w-full max-w-md rounded-lg border border-rose-100 bg-white p-5 shadow-paper dark:border-rose-900 dark:bg-stone-950"
+        >
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-200">
+              <TriangleAlert className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 id="permanent-delete-title" className="text-lg font-black text-stone-950 dark:text-stone-50">
+                Delete forever?
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-300">
+                This will permanently delete {pendingPermanentDeleteIds.length === 1 ? "this book" : `${pendingPermanentDeleteIds.length} books`} and all
+                related notes, annotations, vocabulary, and progress.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 max-h-36 space-y-2 overflow-y-auto rounded-lg border border-stone-200 bg-stone-50 p-2 dark:border-stone-800 dark:bg-stone-900">
+            {pendingPermanentDeleteBooks.map((book) => (
+              <div key={book.id} className="line-clamp-2 text-sm font-bold text-stone-800 dark:text-stone-100">
+                {book.title}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingPermanentDeleteIds([])}
+              className="rounded-lg px-4 py-2 text-sm font-bold text-stone-600 transition hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmPermanentDelete}
+              className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-700"
+            >
+              Delete forever
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
