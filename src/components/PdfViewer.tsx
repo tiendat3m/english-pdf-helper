@@ -116,8 +116,11 @@ export default function PdfViewer({
   const onZoomChangeRef = useRef(onZoomChange);
   const wheelDeltaRef = useRef(0);
   const wheelFrameRef = useRef<number | null>(null);
+  const wheelCommitTimerRef = useRef<number | null>(null);
+  const previewZoomRef = useRef<number | null>(null);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [previewZoom, setPreviewZoom] = useState<number | null>(null);
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isDocumentReady, setIsDocumentReady] = useState(false);
@@ -127,6 +130,8 @@ export default function PdfViewer({
     anchor: { x: number; y: number };
   } | null>(null);
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
+  const visualZoom = previewZoom ?? zoom;
+  const previewScale = zoom > 0 ? visualZoom / zoom : 1;
 
   useEffect(() => {
     configurePdfWorker();
@@ -135,20 +140,28 @@ export default function PdfViewer({
   useEffect(() => {
     zoomRef.current = zoom;
     onZoomChangeRef.current = onZoomChange;
+    if (previewZoomRef.current !== null && Math.abs(previewZoomRef.current - zoom) < 0.001) {
+      previewZoomRef.current = null;
+      setPreviewZoom(null);
+    }
   }, [onZoomChange, zoom]);
 
   useEffect(() => {
-    setPdfError(null);
-    setIsDocumentReady(false);
-    setPageSize({ width: 0, height: 0 });
-    setTextItems([]);
-    setHighlightPopup(null);
+      setPdfError(null);
+      setIsDocumentReady(false);
+      setPageSize({ width: 0, height: 0 });
+      setTextItems([]);
+      setHighlightPopup(null);
+      setPreviewZoom(null);
+      previewZoomRef.current = null;
   }, [book?.id]);
 
   useEffect(() => {
     setTextItems([]);
     setHighlightPopup(null);
     setPageSize({ width: 0, height: 0 });
+    setPreviewZoom(null);
+    previewZoomRef.current = null;
   }, [currentPage, renderWidth]);
 
   useEffect(() => {
@@ -199,7 +212,7 @@ export default function PdfViewer({
         return;
       }
 
-      const currentZoom = zoomRef.current;
+      const currentZoom = previewZoomRef.current ?? zoomRef.current;
       const zoomStep = delta < 0 ? 0.06 : -0.06;
       const nextZoom = clamp(currentZoom + zoomStep, MIN_ZOOM, MAX_ZOOM);
 
@@ -208,8 +221,21 @@ export default function PdfViewer({
       }
 
       const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
-      zoomRef.current = nextZoom;
-      onZoomChangeRef.current(nextZoom);
+      previewZoomRef.current = nextZoom;
+      setPreviewZoom(nextZoom);
+
+      if (wheelCommitTimerRef.current !== null) {
+        window.clearTimeout(wheelCommitTimerRef.current);
+      }
+      wheelCommitTimerRef.current = window.setTimeout(() => {
+        const committedZoom = previewZoomRef.current;
+        wheelCommitTimerRef.current = null;
+        if (committedZoom !== null) {
+          zoomRef.current = committedZoom;
+          onZoomChangeRef.current(committedZoom);
+        }
+      }, 140);
+
       window.requestAnimationFrame(() => {
         element.scrollTop = previousScrollRatio * Math.max(0, element.scrollHeight - element.clientHeight);
       });
@@ -235,8 +261,13 @@ export default function PdfViewer({
       if (wheelFrameRef.current !== null) {
         window.cancelAnimationFrame(wheelFrameRef.current);
       }
+      if (wheelCommitTimerRef.current !== null) {
+        window.clearTimeout(wheelCommitTimerRef.current);
+      }
       wheelFrameRef.current = null;
+      wheelCommitTimerRef.current = null;
       wheelDeltaRef.current = 0;
+      previewZoomRef.current = null;
     };
   }, []);
 
@@ -360,9 +391,24 @@ export default function PdfViewer({
         className={`min-h-0 flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
         onMouseUp={handleSelectionCapture}
       >
-        <div className="mx-auto w-fit" ref={pageShellRef}>
-          {pdfFile ? (
-            <Document
+        <div
+          className="mx-auto"
+          style={{
+            width: pageSize.width ? pageSize.width * previewScale : undefined,
+            height: pageSize.height ? pageSize.height * previewScale : undefined
+          }}
+        >
+          <div
+            className="w-fit"
+            ref={pageShellRef}
+            style={{
+              transform: previewScale === 1 ? undefined : `scale(${previewScale})`,
+              transformOrigin: "top center",
+              willChange: previewScale === 1 ? undefined : "transform"
+            }}
+          >
+            {pdfFile ? (
+              <Document
               key={book.id}
               file={pdfFile}
               loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Loading PDF...</div>}
@@ -480,12 +526,13 @@ export default function PdfViewer({
                   </div>
                 )}
               </div>
-            </Document>
-          ) : (
-            <div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool dark:bg-stone-900 dark:text-stone-300">
-              Preparing local PDF...
-            </div>
-          )}
+              </Document>
+            ) : (
+              <div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool dark:bg-stone-900 dark:text-stone-300">
+                Preparing local PDF...
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -512,7 +559,7 @@ export default function PdfViewer({
           <ChevronRight className="h-5 w-5" />
         </button>
         <div className="ml-2 text-xs font-semibold text-stone-500 dark:text-stone-400">
-          Zoom {Math.round(clamp(zoom, MIN_ZOOM, MAX_ZOOM) * 100)}%
+          Zoom {Math.round(clamp(visualZoom, MIN_ZOOM, MAX_ZOOM) * 100)}%
         </div>
         <button type="button" className="sr-only" onClick={() => onZoomChange(1)}>
           Reset zoom
