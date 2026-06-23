@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -159,6 +159,10 @@ export default function PdfViewer({
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setHighlightPopup(null);
+        return;
+      }
       if (event.code === "Space") {
         setIsSpaceDown(event.type === "keydown");
       }
@@ -358,12 +362,20 @@ export default function PdfViewer({
                 )}
                 {highlightPopup && pageSize.width > 0 && (
                   <div
-                    className="absolute z-40 w-72 rounded-lg border border-stone-200 bg-white p-3 text-sm shadow-paper dark:border-stone-700 dark:bg-stone-950"
+                    className="absolute z-40 w-72 rounded-lg border border-stone-200 bg-white p-3 pr-10 text-sm shadow-paper dark:border-stone-700 dark:bg-stone-950"
                     style={{
                       left: Math.min(highlightPopup.anchor.x * pageSize.width + 8, pageSize.width - 300),
                       top: Math.min(highlightPopup.anchor.y * pageSize.height + 8, pageSize.height - 220)
                     }}
                   >
+                    <button
+                      type="button"
+                      title="Close highlight popup"
+                      onClick={() => setHighlightPopup(null)}
+                      className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 dark:hover:bg-stone-800 dark:hover:text-stone-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                     <div className="max-h-24 overflow-y-auto rounded-md bg-paper p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
                       {highlightPopup.annotation.selectedText || "No PDF text detected in this highlight."}
                     </div>
