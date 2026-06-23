@@ -23,6 +23,7 @@
 - Tightened highlight text filtering so nearby list numbers are not captured when only a word is highlighted.
 - Stripped leading exercise/list numbers from detected highlight text when a PDF span combines the number and word.
 - Added Ctrl + mouse wheel PDF zoom with a native non-passive wheel listener so it does not trigger browser page zoom.
+- Smoothed Ctrl-wheel zoom by throttling zoom updates and added a high-contrast drawing cursor for pen/highlighter tools.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.

@@ -114,6 +114,8 @@ export default function PdfViewer({
   const pageShellRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
+  const wheelDeltaRef = useRef(0);
+  const wheelFrameRef = useRef<number | null>(null);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
@@ -188,23 +190,24 @@ export default function PdfViewer({
       return;
     }
 
-    const handleWheel = (event: globalThis.WheelEvent) => {
-      if (!event.ctrlKey) {
+    const applyWheelZoom = () => {
+      wheelFrameRef.current = null;
+      const delta = wheelDeltaRef.current;
+      wheelDeltaRef.current = 0;
+
+      if (!delta) {
         return;
       }
 
-      event.preventDefault();
-      setHighlightPopup(null);
-
-      const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
       const currentZoom = zoomRef.current;
-      const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
-      const nextZoom = clamp(currentZoom + zoomDelta, MIN_ZOOM, MAX_ZOOM);
+      const zoomStep = delta < 0 ? 0.06 : -0.06;
+      const nextZoom = clamp(currentZoom + zoomStep, MIN_ZOOM, MAX_ZOOM);
 
       if (nextZoom === currentZoom) {
         return;
       }
 
+      const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
       zoomRef.current = nextZoom;
       onZoomChangeRef.current(nextZoom);
       window.requestAnimationFrame(() => {
@@ -212,8 +215,29 @@ export default function PdfViewer({
       });
     };
 
+    const handleWheel = (event: globalThis.WheelEvent) => {
+      if (!event.ctrlKey) {
+        return;
+      }
+
+      event.preventDefault();
+      setHighlightPopup(null);
+      wheelDeltaRef.current += event.deltaY;
+
+      if (wheelFrameRef.current === null) {
+        wheelFrameRef.current = window.requestAnimationFrame(applyWheelZoom);
+      }
+    };
+
     element.addEventListener("wheel", handleWheel, { passive: false, capture: true });
-    return () => element.removeEventListener("wheel", handleWheel, { capture: true });
+    return () => {
+      element.removeEventListener("wheel", handleWheel, { capture: true });
+      if (wheelFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelFrameRef.current);
+      }
+      wheelFrameRef.current = null;
+      wheelDeltaRef.current = 0;
+    };
   }, []);
 
   const pdfFile = useMemo(() => book?.blob ?? null, [book?.blob]);

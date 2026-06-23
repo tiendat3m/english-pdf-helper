@@ -49,6 +49,9 @@ function distanceToStroke(point: Point, stroke: Point[]) {
   );
 }
 
+const DRAW_CURSOR =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='14' cy='14' r='5.5' fill='white' fill-opacity='.88' stroke='%231f2933' stroke-width='2'/%3E%3Cpath d='M14 4v6M14 18v6M4 14h6M18 14h6' stroke='%231f2933' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E\") 14 14, crosshair";
+
 export default function AnnotationLayer({
   bookId,
   pageNumber,
@@ -391,7 +394,7 @@ export default function AnnotationLayer({
 
   const drawingCursor =
     tool === "pen" || tool === "highlighter"
-      ? "cursor-crosshair"
+      ? ""
       : tool === "eraser"
         ? "cursor-cell"
         : tool === "note"
@@ -404,7 +407,8 @@ export default function AnnotationLayer({
       style={{
         width: pageSize.width,
         height: pageSize.height,
-        touchAction: tool === "pan" ? "auto" : "none"
+        touchAction: tool === "pan" ? "auto" : "none",
+        cursor: tool === "pen" || tool === "highlighter" ? DRAW_CURSOR : undefined
       }}
     >
       <Stage
