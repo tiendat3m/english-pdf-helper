@@ -193,6 +193,10 @@ export default function AnnotationLayer({
     }, "");
   }
 
+  function stripLeadingListMarker(text: string) {
+    return text.replace(/^\s*\d+[\).]?\s+(?=[A-Za-z])/u, "").trim();
+  }
+
   function getTextForRect(rect: NormalizedRect) {
     const matchedItems = textItems
       .filter((item) => shouldIncludeTextItem(rect, item))
@@ -216,7 +220,7 @@ export default function AnnotationLayer({
     }, []);
 
     return lines
-      .map((line) => joinTextLine(line.sort((a, b) => a.box.x - b.box.x || a.order - b.order)))
+      .map((line) => stripLeadingListMarker(joinTextLine(line.sort((a, b) => a.box.x - b.box.x || a.order - b.order))))
       .filter(Boolean)
       .join(" ")
       .replace(/\s+([,.!?;:])/g, "$1")

@@ -21,6 +21,7 @@
 - Added an AI on/off toggle for highlight actions and improved text joining for fragmented PDF text spans.
 - Added close and Escape dismissal for the highlight action popup.
 - Tightened highlight text filtering so nearby list numbers are not captured when only a word is highlighted.
+- Stripped leading exercise/list numbers from detected highlight text when a PDF span combines the number and word.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.
