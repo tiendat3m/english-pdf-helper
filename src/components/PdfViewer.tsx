@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Component, type ReactNode, type WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -274,6 +274,29 @@ export default function PdfViewer({
     selection?.removeAllRanges();
   }
 
+  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey) {
+      return;
+    }
+
+    event.preventDefault();
+    setHighlightPopup(null);
+
+    const element = event.currentTarget;
+    const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
+    const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
+    const nextZoom = clamp(zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM);
+
+    if (nextZoom === zoom) {
+      return;
+    }
+
+    onZoomChange(nextZoom);
+    window.requestAnimationFrame(() => {
+      element.scrollTop = previousScrollRatio * Math.max(0, element.scrollHeight - element.clientHeight);
+    });
+  }
+
   if (!book) {
     return (
       <div className="grid min-h-[620px] flex-1 place-items-center p-8">
@@ -294,6 +317,7 @@ export default function PdfViewer({
         ref={shellRef}
         className={`min-h-0 flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
         onMouseUp={handleSelectionCapture}
+        onWheel={handleWheel}
       >
         <div className="mx-auto w-fit" ref={pageShellRef}>
           {pdfFile ? (
