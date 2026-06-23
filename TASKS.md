@@ -18,6 +18,7 @@
 - Implemented soft delete for saved books with Recently Deleted restore and 30-day permanent cleanup.
 - Added individual and bulk permanent delete actions for Recently Deleted books.
 - Replaced native permanent-delete confirm alerts with an in-app confirmation dialog.
+- Added an AI on/off toggle for highlight actions and improved text joining for fragmented PDF text spans.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.

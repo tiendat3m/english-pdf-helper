@@ -119,20 +119,76 @@ export default function AnnotationLayer({
     );
   }
 
+  function overlapRatio(first: NormalizedRect, second: NormalizedRect) {
+    const xOverlap = Math.max(0, Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x));
+    const yOverlap = Math.max(0, Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y));
+    const overlapArea = xOverlap * yOverlap;
+    const secondArea = Math.max(second.width * second.height, 0.000001);
+    return overlapArea / secondArea;
+  }
+
+  function shouldJoinWithoutSpace(previous: PdfTextItem, current: PdfTextItem) {
+    const previousRight = previous.box.x + previous.box.width;
+    const gap = current.box.x - previousRight;
+    const lineHeight = Math.max(previous.box.height, current.box.height);
+    const tightGap = Math.max(0.0025, lineHeight * 0.22);
+    const previousText = previous.text.trim();
+    const currentText = current.text.trim();
+
+    if (gap < 0) {
+      return true;
+    }
+
+    if (gap > tightGap) {
+      return false;
+    }
+
+    return /^[A-Za-z]+$/.test(previousText) && /^[A-Za-z]+$/.test(currentText);
+  }
+
+  function joinTextLine(items: PdfTextItem[]) {
+    return items.reduce((line, item, index) => {
+      const text = item.text.trim();
+      if (!text) {
+        return line;
+      }
+      if (index === 0) {
+        return text;
+      }
+
+      const previous = items[index - 1];
+      return `${line}${shouldJoinWithoutSpace(previous, item) ? "" : " "}${text}`;
+    }, "");
+  }
+
   function getTextForRect(rect: NormalizedRect) {
-    return textItems
-      .filter((item) => rectsOverlap(rect, item.box))
+    const matchedItems = textItems
+      .filter((item) => rectsOverlap(rect, item.box) && overlapRatio(rect, item.box) >= 0.18)
       .sort((a, b) => {
         const lineDelta = a.box.y - b.box.y;
         if (Math.abs(lineDelta) > 0.012) {
           return lineDelta;
         }
         return a.box.x - b.box.x || a.order - b.order;
-      })
-      .map((item) => item.text.trim())
+      });
+
+    const lineThreshold = 0.012;
+    const lines = matchedItems.reduce<PdfTextItem[][]>((groups, item) => {
+      const line = groups.find((group) => Math.abs(group[0].box.y - item.box.y) <= lineThreshold);
+      if (line) {
+        line.push(item);
+      } else {
+        groups.push([item]);
+      }
+      return groups;
+    }, []);
+
+    return lines
+      .map((line) => joinTextLine(line.sort((a, b) => a.box.x - b.box.x || a.order - b.order)))
       .filter(Boolean)
       .join(" ")
       .replace(/\s+([,.!?;:])/g, "$1")
+      .replace(/\s+\/\s+/g, " / ")
       .replace(/\s+/g, " ")
       .trim();
   }

@@ -13,6 +13,7 @@ export const initialEditorState: EditorState = {
   theme: "warm",
   workspaceMode: "split",
   inputMode: "all",
+  aiEnabled: true,
   dailyPageGoal: 5,
   targetBand: 8,
   currentBand: 6.5,

@@ -169,6 +169,7 @@ export interface EditorState {
   theme: ThemeMode;
   workspaceMode: WorkspaceMode;
   inputMode: InputMode;
+  aiEnabled: boolean;
   dailyPageGoal: number;
   targetBand: number;
   currentBand: number;

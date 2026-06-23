@@ -78,6 +78,7 @@ interface PdfViewerProps {
   highlighterColor: HighlightColor;
   thickness: number;
   inputMode: InputMode;
+  aiEnabled: boolean;
   onPageChange: (page: number) => void;
   onZoomChange: (zoom: number) => void;
   onDocumentLoaded: (pages: number) => void;
@@ -100,6 +101,7 @@ export default function PdfViewer({
   highlighterColor,
   thickness,
   inputMode,
+  aiEnabled,
   onPageChange,
   onZoomChange,
   onDocumentLoaded,
@@ -384,17 +386,19 @@ export default function PdfViewer({
                       >
                         Add Note
                       </button>
-                      <button
-                        type="button"
-                        disabled={!highlightPopup.annotation.selectedText}
-                        onClick={() => {
-                          onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
-                          setHighlightPopup(null);
-                        }}
-                        className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
-                      >
-                        Explain with AI
-                      </button>
+                      {aiEnabled && (
+                        <button
+                          type="button"
+                          disabled={!highlightPopup.annotation.selectedText}
+                          onClick={() => {
+                            onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
+                            setHighlightPopup(null);
+                          }}
+                          className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
+                        >
+                          Explain with AI
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

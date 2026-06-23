@@ -786,7 +786,7 @@ export default function Dashboard() {
                   <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
                   <div className="text-xs text-stone-500 dark:text-stone-400">
                     {editor.workspaceMode === "split" ? "Split: PDF + Notebook + Vocabulary" : "Focus: PDF centered"} -{" "}
-                    {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"}
+                    {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"} - {editor.aiEnabled ? "AI on" : "AI off"}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -805,6 +805,17 @@ export default function Dashboard() {
                     className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
                   >
                     {editor.inputMode === "stylus" ? "Stylus only" : "All input"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditor((current) => ({ ...current, aiEnabled: !current.aiEnabled }))}
+                    className={`rounded-lg border px-3 py-2 text-xs font-black shadow-sm transition ${
+                      editor.aiEnabled
+                        ? "border-sage bg-skysoft/55 text-stone-800 dark:bg-sage/20 dark:text-stone-100"
+                        : "border-stone-200 bg-white text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                    }`}
+                  >
+                    {editor.aiEnabled ? "AI on" : "AI off"}
                   </button>
                   <Toolbar
                     tool={editor.tool}
@@ -839,6 +850,7 @@ export default function Dashboard() {
                 highlighterColor={editor.highlighterColor}
                 thickness={editor.thickness}
                 inputMode={editor.inputMode}
+                aiEnabled={editor.aiEnabled}
                 onPageChange={changePage}
                 onZoomChange={changeZoom}
                 onDocumentLoaded={handleDocumentLoaded}
