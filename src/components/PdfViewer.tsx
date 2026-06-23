@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Component, type ReactNode, type WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -112,6 +112,8 @@ export default function PdfViewer({
 }: PdfViewerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
   const pageShellRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  const onZoomChangeRef = useRef(onZoomChange);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [isSpaceDown, setIsSpaceDown] = useState(false);
@@ -127,6 +129,11 @@ export default function PdfViewer({
   useEffect(() => {
     configurePdfWorker();
   }, []);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+    onZoomChangeRef.current = onZoomChange;
+  }, [onZoomChange, zoom]);
 
   useEffect(() => {
     setPdfError(null);
@@ -173,6 +180,40 @@ export default function PdfViewer({
       window.removeEventListener("keydown", handleKey);
       window.removeEventListener("keyup", handleKey);
     };
+  }, []);
+
+  useEffect(() => {
+    const element = shellRef.current;
+    if (!element) {
+      return;
+    }
+
+    const handleWheel = (event: globalThis.WheelEvent) => {
+      if (!event.ctrlKey) {
+        return;
+      }
+
+      event.preventDefault();
+      setHighlightPopup(null);
+
+      const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
+      const currentZoom = zoomRef.current;
+      const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
+      const nextZoom = clamp(currentZoom + zoomDelta, MIN_ZOOM, MAX_ZOOM);
+
+      if (nextZoom === currentZoom) {
+        return;
+      }
+
+      zoomRef.current = nextZoom;
+      onZoomChangeRef.current(nextZoom);
+      window.requestAnimationFrame(() => {
+        element.scrollTop = previousScrollRatio * Math.max(0, element.scrollHeight - element.clientHeight);
+      });
+    };
+
+    element.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+    return () => element.removeEventListener("wheel", handleWheel, { capture: true });
   }, []);
 
   const pdfFile = useMemo(() => book?.blob ?? null, [book?.blob]);
@@ -274,29 +315,6 @@ export default function PdfViewer({
     selection?.removeAllRanges();
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey) {
-      return;
-    }
-
-    event.preventDefault();
-    setHighlightPopup(null);
-
-    const element = event.currentTarget;
-    const previousScrollRatio = element.scrollHeight > element.clientHeight ? element.scrollTop / (element.scrollHeight - element.clientHeight) : 0;
-    const zoomDelta = event.deltaY < 0 ? 0.08 : -0.08;
-    const nextZoom = clamp(zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM);
-
-    if (nextZoom === zoom) {
-      return;
-    }
-
-    onZoomChange(nextZoom);
-    window.requestAnimationFrame(() => {
-      element.scrollTop = previousScrollRatio * Math.max(0, element.scrollHeight - element.clientHeight);
-    });
-  }
-
   if (!book) {
     return (
       <div className="grid min-h-[620px] flex-1 place-items-center p-8">
@@ -317,7 +335,6 @@ export default function PdfViewer({
         ref={shellRef}
         className={`min-h-0 flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
         onMouseUp={handleSelectionCapture}
-        onWheel={handleWheel}
       >
         <div className="mx-auto w-fit" ref={pageShellRef}>
           {pdfFile ? (
