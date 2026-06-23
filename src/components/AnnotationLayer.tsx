@@ -127,6 +127,38 @@ export default function AnnotationLayer({
     return overlapArea / secondArea;
   }
 
+  function horizontalOverlapRatio(first: NormalizedRect, second: NormalizedRect) {
+    const xOverlap = Math.max(0, Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x));
+    return xOverlap / Math.max(second.width, 0.000001);
+  }
+
+  function verticalOverlapRatio(first: NormalizedRect, second: NormalizedRect) {
+    const yOverlap = Math.max(0, Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y));
+    return yOverlap / Math.max(second.height, 0.000001);
+  }
+
+  function isListMarker(text: string) {
+    return /^\d+[\).]?$/.test(text.trim());
+  }
+
+  function shouldIncludeTextItem(rect: NormalizedRect, item: PdfTextItem) {
+    if (!rectsOverlap(rect, item.box)) {
+      return false;
+    }
+
+    const areaOverlap = overlapRatio(rect, item.box);
+    const horizontalOverlap = horizontalOverlapRatio(rect, item.box);
+    const verticalOverlap = verticalOverlapRatio(rect, item.box);
+    const itemCenterX = item.box.x + item.box.width / 2;
+    const rectLeftTolerance = Math.max(0.002, rect.width * 0.08);
+
+    if (isListMarker(item.text)) {
+      return areaOverlap >= 0.7 && horizontalOverlap >= 0.72 && itemCenterX >= rect.x - rectLeftTolerance;
+    }
+
+    return areaOverlap >= 0.2 && horizontalOverlap >= 0.32 && verticalOverlap >= 0.45;
+  }
+
   function shouldJoinWithoutSpace(previous: PdfTextItem, current: PdfTextItem) {
     const previousRight = previous.box.x + previous.box.width;
     const gap = current.box.x - previousRight;
@@ -163,7 +195,7 @@ export default function AnnotationLayer({
 
   function getTextForRect(rect: NormalizedRect) {
     const matchedItems = textItems
-      .filter((item) => rectsOverlap(rect, item.box) && overlapRatio(rect, item.box) >= 0.18)
+      .filter((item) => shouldIncludeTextItem(rect, item))
       .sort((a, b) => {
         const lineDelta = a.box.y - b.box.y;
         if (Math.abs(lineDelta) > 0.012) {
