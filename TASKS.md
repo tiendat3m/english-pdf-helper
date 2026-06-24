@@ -31,6 +31,7 @@
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Switched AI Study Coach provider routing to prefer Ollama local models, with Gemini/OpenAI as optional fallbacks.
+- Added Ollama cloud support for `https://ollama.com/api` and GLM-5 cloud models.
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.
 - Improved handwriting mode with stylus-only input and smoother stroke capture for XP-Pen/Huion/Wacom workflows.
 - Added clear-page action with undo/redo recovery for messy handwriting sessions.

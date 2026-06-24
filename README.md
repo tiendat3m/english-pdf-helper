@@ -36,15 +36,16 @@ Open `http://localhost:3000`.
 
 ## AI Study Coach
 
-Create `.env` before using AI actions. Ollama is preferred for local AI:
+Create `.env` before using AI actions. Ollama is preferred, and can use Ollama cloud models:
 
 ```bash
 AI_PROVIDER=ollama
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=llama3.2
+OLLAMA_BASE_URL=https://ollama.com/api
+OLLAMA_MODEL=glm-5:cloud
+OLLAMA_API_KEY=your_ollama_api_key_here
 ```
 
-Run `ollama pull llama3.2` first if the model is not installed. Restart `npm run dev` after changing environment variables. If your Ollama server or proxy requires auth, add `OLLAMA_API_KEY`.
+For local Ollama, use `OLLAMA_BASE_URL=http://127.0.0.1:11434` and a locally installed model. Restart `npm run dev` after changing environment variables.
 
 In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coach can generate vocabulary notes with IPA, English meaning, Vietnamese meaning, explanations, grammar notes, or sticky study notes. Results can be saved to the Vocabulary tab or as a sticky note on the current PDF page.
 

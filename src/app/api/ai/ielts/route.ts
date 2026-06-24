@@ -140,6 +140,12 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function ollamaEndpoint(path: string) {
+  const baseUrl = stripTrailingSlash(process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434");
+  const apiBaseUrl = baseUrl.endsWith("/api") ? baseUrl : `${baseUrl}/api`;
+  return `${apiBaseUrl}${path}`;
+}
+
 async function callOllama(prompt: string) {
   const provider = process.env.AI_PROVIDER?.toLowerCase();
   const hasOllamaConfig = Boolean(process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || provider === "ollama");
@@ -150,7 +156,6 @@ async function callOllama(prompt: string) {
     return null;
   }
 
-  const baseUrl = stripTrailingSlash(process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434");
   const model = process.env.OLLAMA_MODEL ?? "llama3.2";
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
@@ -161,7 +166,7 @@ async function callOllama(prompt: string) {
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/api/chat`, {
+    response = await fetch(ollamaEndpoint("/chat"), {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -185,8 +190,8 @@ async function callOllama(prompt: string) {
       {
         error:
           error instanceof Error
-            ? `Ollama request failed: ${error.message}. Is Ollama running at ${baseUrl}?`
-            : `Ollama request failed. Is Ollama running at ${baseUrl}?`,
+            ? `Ollama request failed: ${error.message}. Check OLLAMA_BASE_URL and OLLAMA_API_KEY.`
+            : "Ollama request failed. Check OLLAMA_BASE_URL and OLLAMA_API_KEY.",
         provider: "ollama"
       },
       { status: 502 }
