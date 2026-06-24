@@ -193,7 +193,7 @@ export default function AnnotationLayer({
   }
 
   function shouldIncludeTextItem(rect: NormalizedRect, item: PdfTextItem) {
-    const verticalPadding = Math.max(rect.height * 0.9, item.box.height * 0.28, 0.004);
+    const verticalPadding = Math.max(rect.height * 0.35, item.box.height * 0.12, 0.002);
     const expandedRect = {
       x: rect.x,
       y: Math.max(0, rect.y - verticalPadding),
@@ -218,6 +218,56 @@ export default function AnnotationLayer({
     }
 
     return horizontalOverlap >= 0.22 && (verticalOverlap >= 0.24 || centerIsInsideHighlightLine);
+  }
+
+  function lineBox(line: PdfTextItem[]): NormalizedRect {
+    const left = Math.min(...line.map((item) => item.box.x));
+    const top = Math.min(...line.map((item) => item.box.y));
+    const right = Math.max(...line.map((item) => item.box.x + item.box.width));
+    const bottom = Math.max(...line.map((item) => item.box.y + item.box.height));
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+
+  function verticalOverlapAmount(first: NormalizedRect, second: NormalizedRect) {
+    return Math.max(0, Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y));
+  }
+
+  function filterLinesForHighlight(rect: NormalizedRect, lines: PdfTextItem[][]) {
+    if (lines.length <= 1) {
+      return lines;
+    }
+
+    const rectCenterY = rect.y + rect.height / 2;
+    const scored = lines.map((line) => {
+      const box = lineBox(line);
+      const overlap = verticalOverlapAmount(rect, box);
+      const score = overlap / Math.max(box.height, 0.000001);
+      const centerDistance = Math.abs(rectCenterY - (box.y + box.height / 2));
+      return { line, box, score, centerDistance };
+    });
+
+    const averageLineHeight = scored.reduce((sum, item) => sum + item.box.height, 0) / scored.length;
+    const best = scored.reduce((winner, item) => {
+      if (item.score > winner.score) {
+        return item;
+      }
+      if (item.score === winner.score && item.centerDistance < winner.centerDistance) {
+        return item;
+      }
+      return winner;
+    }, scored[0]);
+
+    if (rect.height <= averageLineHeight * 1.6) {
+      return [best.line];
+    }
+
+    const threshold = Math.max(0.16, best.score * 0.45);
+    return scored.filter((item) => item.score >= threshold).map((item) => item.line);
   }
 
   function shouldJoinWithoutSpace(previous: PdfTextItem, current: PdfTextItem) {
@@ -282,7 +332,7 @@ export default function AnnotationLayer({
       return groups;
     }, []);
 
-    return lines
+    return filterLinesForHighlight(rect, lines)
       .map((line) => stripLeadingListMarker(joinTextLine(line.sort((a, b) => a.box.x - b.box.x || a.order - b.order))))
       .filter(Boolean)
       .join(" ")
