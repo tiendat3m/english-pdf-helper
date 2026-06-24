@@ -41,6 +41,7 @@ interface AnnotationLayerProps {
   thickness: number;
   inputMode: InputMode;
   textItems: PdfTextItem[];
+  getLiveTextItems?: () => PdfTextItem[];
   onAddAnnotation: (annotation: Annotation) => void;
   onHighlightCreated: (annotation: HighlightAnnotation, anchor: Point) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
@@ -76,6 +77,7 @@ export default function AnnotationLayer({
   thickness,
   inputMode,
   textItems,
+  getLiveTextItems,
   onAddAnnotation,
   onHighlightCreated,
   onUpdateAnnotation,
@@ -247,7 +249,9 @@ export default function AnnotationLayer({
   }
 
   function getTextForRect(rect: NormalizedRect) {
-    const matchedItems = textItems
+    const liveItems = getLiveTextItems?.() ?? [];
+    const sourceItems = liveItems.length > 0 ? liveItems : textItems;
+    const matchedItems = sourceItems
       .filter((item) => shouldIncludeTextItem(rect, item))
       .sort((a, b) => {
         const lineDelta = a.box.y - b.box.y;

@@ -408,37 +408,40 @@ export default function PdfViewer({
     }
   }
 
+  function getTextItemsFromLayer() {
+    const canvas = pageShellRef.current?.querySelector("canvas");
+    const textSpans = pageShellRef.current?.querySelectorAll(".react-pdf__Page__textContent span");
+    if (!canvas || !textSpans?.length) {
+      return [];
+    }
+
+    const pageRect = canvas.getBoundingClientRect();
+    return Array.from(textSpans)
+      .map((span, order) => {
+        const text = span.textContent?.trim() ?? "";
+        const rect = span.getBoundingClientRect();
+        if (!text || rect.width <= 0 || rect.height <= 0) {
+          return null;
+        }
+
+        return {
+          id: `${currentPageRef.current}-${order}`,
+          text,
+          order,
+          box: {
+            x: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
+            y: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
+            width: clamp(rect.width / pageRect.width, 0, 1),
+            height: clamp(rect.height / pageRect.height, 0, 1)
+          }
+        };
+      })
+      .filter((item): item is PdfTextItem => Boolean(item));
+  }
+
   function extractTextItemsFromLayer() {
     window.requestAnimationFrame(() => {
-      const canvas = pageShellRef.current?.querySelector("canvas");
-      const textSpans = pageShellRef.current?.querySelectorAll(".react-pdf__Page__textContent span");
-      if (!canvas || !textSpans?.length) {
-        return;
-      }
-
-      const pageRect = canvas.getBoundingClientRect();
-      const items = Array.from(textSpans)
-        .map((span, order) => {
-          const text = span.textContent?.trim() ?? "";
-          const rect = span.getBoundingClientRect();
-          if (!text || rect.width <= 0 || rect.height <= 0) {
-            return null;
-          }
-
-          return {
-            id: `${currentPage}-${order}`,
-            text,
-            order,
-            box: {
-              x: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
-              y: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
-              width: clamp(rect.width / pageRect.width, 0, 1),
-              height: clamp(rect.height / pageRect.height, 0, 1)
-            }
-          };
-        })
-        .filter((item): item is PdfTextItem => Boolean(item));
-
+      const items = getTextItemsFromLayer();
       if (items.length > 0) {
         setTextItems(items);
       }
@@ -612,6 +615,7 @@ export default function PdfViewer({
                     thickness={thickness}
                     inputMode={inputMode}
                     textItems={textItems}
+                    getLiveTextItems={getTextItemsFromLayer}
                     onAddAnnotation={onAddAnnotation}
                     onHighlightCreated={handleHighlightCreated}
                     onUpdateAnnotation={onUpdateAnnotation}
