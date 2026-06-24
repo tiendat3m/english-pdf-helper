@@ -6,6 +6,7 @@ import { v4 as uuid } from "uuid";
 import { HIGHLIGHT_COLORS, PEN_COLORS } from "@/lib/constants";
 import type {
   Annotation,
+  BrushStyle,
   HighlightAnnotation,
   HighlightColor,
   InputMode,
@@ -36,6 +37,7 @@ interface AnnotationLayerProps {
   tool: ToolMode;
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
+  brushStyle: BrushStyle;
   thickness: number;
   inputMode: InputMode;
   textItems: PdfTextItem[];
@@ -70,6 +72,7 @@ export default function AnnotationLayer({
   tool,
   penColor,
   highlighterColor,
+  brushStyle,
   thickness,
   inputMode,
   textItems,
@@ -129,6 +132,20 @@ export default function AnnotationLayer({
       });
     }
     return stabilized;
+  }
+
+  function getBrushProfile(brush: BrushStyle = "ballpoint") {
+    switch (brush) {
+      case "pencil":
+        return { widthScale: 0.72, opacity: 0.68, pressureScale: 0.2, tension: 0.28 };
+      case "marker":
+        return { widthScale: 1.55, opacity: 0.82, pressureScale: 0.12, tension: 0.36 };
+      case "fountain":
+        return { widthScale: 0.92, opacity: 1, pressureScale: 0.82, tension: 0.48 };
+      case "ballpoint":
+      default:
+        return { widthScale: 1, opacity: 1, pressureScale: 0.4, tension: 0.42 };
+    }
   }
 
   function normalizeRect(start: Point, end: Point): NormalizedRect {
@@ -461,7 +478,8 @@ export default function AnnotationLayer({
       tool: "pen",
       color: PEN_COLORS[penColor],
       width: thickness,
-      opacity: 1,
+      opacity: getBrushProfile(brushStyle).opacity,
+      brush: brushStyle,
       points,
       createdAt: nowIso()
     });
@@ -472,9 +490,10 @@ export default function AnnotationLayer({
     return points.flatMap((point) => [point.x * pageSize.width, point.y * pageSize.height]);
   }
 
-  function scaledWidth(width: number, points: Point[]) {
+  function scaledWidth(width: number, points: Point[], brush: BrushStyle = "ballpoint") {
     const pressure = points.reduce((sum, point) => sum + point.pressure, 0) / Math.max(points.length, 1);
-    return Math.max(0.6, width * (0.55 + pressure * 0.4) * (pageSize.width / 900));
+    const profile = getBrushProfile(brush);
+    return Math.max(0.45, width * profile.widthScale * (0.55 + pressure * profile.pressureScale) * (pageSize.width / 900));
   }
 
   function updateNote(annotation: StickyNoteAnnotation, patch: Partial<StickyNoteAnnotation>) {
@@ -548,9 +567,9 @@ export default function AnnotationLayer({
                 key={annotation.id}
                 points={linePoints(annotation.points)}
                 stroke={annotation.color}
-                strokeWidth={scaledWidth(annotation.width, annotation.points)}
+                strokeWidth={scaledWidth(annotation.width, annotation.points, annotation.brush)}
                 opacity={annotation.opacity}
-                tension={0.42}
+                tension={getBrushProfile(annotation.brush).tension}
                 lineCap="round"
                 lineJoin="round"
                 globalCompositeOperation={annotation.tool === "highlighter" ? "multiply" : "source-over"}
@@ -572,9 +591,9 @@ export default function AnnotationLayer({
             <Line
               points={linePoints(draft)}
               stroke={PEN_COLORS[penColor]}
-              strokeWidth={scaledWidth(thickness, draft)}
-              opacity={1}
-              tension={0.42}
+              strokeWidth={scaledWidth(thickness, draft, brushStyle)}
+              opacity={getBrushProfile(brushStyle).opacity}
+              tension={getBrushProfile(brushStyle).tension}
               lineCap="round"
               lineJoin="round"
               globalCompositeOperation="source-over"

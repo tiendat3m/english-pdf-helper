@@ -4,6 +4,7 @@ import {
   Eraser,
   FileDown,
   Highlighter,
+  Paintbrush,
   Minus,
   NotebookPen,
   PenLine,
@@ -16,18 +17,20 @@ import {
   ZoomOut
 } from "lucide-react";
 import { HIGHLIGHT_COLORS, PEN_COLORS } from "@/lib/constants";
-import type { HighlightColor, StrokeColor, ToolMode } from "@/lib/types";
+import type { BrushStyle, HighlightColor, StrokeColor, ToolMode } from "@/lib/types";
 
 interface ToolbarProps {
   tool: ToolMode;
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
+  brushStyle: BrushStyle;
   thickness: number;
   canUndo: boolean;
   canRedo: boolean;
   onToolChange: (tool: ToolMode) => void;
   onPenColorChange: (color: StrokeColor) => void;
   onHighlighterColorChange: (color: HighlightColor) => void;
+  onBrushStyleChange: (brush: BrushStyle) => void;
   onThicknessChange: (thickness: number) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -45,16 +48,25 @@ const toolButtons: Array<{ tool: ToolMode; label: string; icon: React.ComponentT
   { tool: "eraser", label: "Eraser", icon: Eraser }
 ];
 
+const brushOptions: Array<{ value: BrushStyle; label: string }> = [
+  { value: "ballpoint", label: "Ballpoint" },
+  { value: "pencil", label: "Pencil" },
+  { value: "marker", label: "Marker" },
+  { value: "fountain", label: "Fountain" }
+];
+
 export default function Toolbar({
   tool,
   penColor,
   highlighterColor,
+  brushStyle,
   thickness,
   canUndo,
   canRedo,
   onToolChange,
   onPenColorChange,
   onHighlighterColorChange,
+  onBrushStyleChange,
   onThicknessChange,
   onUndo,
   onRedo,
@@ -87,6 +99,24 @@ export default function Toolbar({
           );
         })}
       </div>
+
+      <div className="mx-1 h-8 w-px bg-stone-200 dark:bg-stone-700" />
+
+      <label className="flex items-center gap-2 rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-bold text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
+        <Paintbrush className="h-3.5 w-3.5" />
+        <select
+          aria-label="Brush style"
+          value={brushStyle}
+          onChange={(event) => onBrushStyleChange(event.target.value as BrushStyle)}
+          className="bg-transparent outline-none"
+        >
+          {brushOptions.map((brush) => (
+            <option key={brush.value} value={brush.value}>
+              {brush.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="mx-1 h-8 w-px bg-stone-200 dark:bg-stone-700" />
 

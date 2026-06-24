@@ -28,6 +28,7 @@
 - Improved XP-Pen/Huion stylus feel with pointer capture, coalesced pointer samples, lighter point filtering, and stroke stabilization.
 - Made pen strokes thinner by default with finer thickness controls for small tablets like XP-Pen XS.
 - Added a collapsible left library sidebar for a wider handwriting/PDF workspace.
+- Added brush style selection for ballpoint, pencil, marker, and fountain pen strokes.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Switched AI Study Coach provider routing to prefer Ollama local models, with Gemini/OpenAI as optional fallbacks.

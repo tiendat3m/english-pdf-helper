@@ -12,6 +12,8 @@ export type StrokeColor = "black" | "blue" | "red";
 
 export type HighlightColor = "yellow" | "green" | "pink";
 
+export type BrushStyle = "ballpoint" | "pencil" | "marker" | "fountain";
+
 export type PageStatus = "not-started" | "learning" | "done" | "need-review";
 
 export type BookmarkCategory =
@@ -71,6 +73,7 @@ export interface StrokeAnnotation {
   color: string;
   width: number;
   opacity: number;
+  brush?: BrushStyle;
   points: Point[];
   createdAt: string;
 }
@@ -165,6 +168,7 @@ export interface EditorState {
   tool: ToolMode;
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
+  brushStyle: BrushStyle;
   thickness: number;
   theme: ThemeMode;
   workspaceMode: WorkspaceMode;

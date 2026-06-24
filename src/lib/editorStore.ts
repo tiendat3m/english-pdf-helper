@@ -9,6 +9,7 @@ export const initialEditorState: EditorState = {
   tool: "pen",
   penColor: "black",
   highlighterColor: "yellow",
+  brushStyle: "ballpoint",
   thickness: 1.25,
   theme: "warm",
   workspaceMode: "split",

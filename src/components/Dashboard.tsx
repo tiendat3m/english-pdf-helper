@@ -837,12 +837,14 @@ export default function Dashboard() {
                     tool={editor.tool}
                     penColor={editor.penColor}
                     highlighterColor={editor.highlighterColor}
+                    brushStyle={editor.brushStyle}
                     thickness={editor.thickness}
                     canUndo={undoStack.length > 0}
                     canRedo={redoStack.length > 0}
                     onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
                     onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
                     onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
+                    onBrushStyleChange={(brushStyle) => setEditor((current) => ({ ...current, brushStyle }))}
                     onThicknessChange={(thickness) => setEditor((current) => ({ ...current, thickness }))}
                     onUndo={handleUndo}
                     onRedo={handleRedo}
@@ -864,6 +866,7 @@ export default function Dashboard() {
                 tool={editor.tool}
                 penColor={editor.penColor}
                 highlighterColor={editor.highlighterColor}
+                brushStyle={editor.brushStyle}
                 thickness={editor.thickness}
                 inputMode={editor.inputMode}
                 aiEnabled={editor.aiEnabled}

@@ -10,6 +10,7 @@ import { configurePdfWorker } from "@/lib/pdfWorker";
 import type {
   Annotation,
   BookRecord,
+  BrushStyle,
   HighlightAnnotation,
   HighlightColor,
   InputMode,
@@ -76,6 +77,7 @@ interface PdfViewerProps {
   tool: ToolMode;
   penColor: StrokeColor;
   highlighterColor: HighlightColor;
+  brushStyle: BrushStyle;
   thickness: number;
   inputMode: InputMode;
   aiEnabled: boolean;
@@ -99,6 +101,7 @@ export default function PdfViewer({
   tool,
   penColor,
   highlighterColor,
+  brushStyle,
   thickness,
   inputMode,
   aiEnabled,
@@ -462,6 +465,7 @@ export default function PdfViewer({
                     tool={isSpaceDown ? "pan" : tool}
                     penColor={penColor}
                     highlighterColor={highlighterColor}
+                    brushStyle={brushStyle}
                     thickness={thickness}
                     inputMode={inputMode}
                     textItems={textItems}
