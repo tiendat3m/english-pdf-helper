@@ -474,7 +474,7 @@ export default function AnnotationLayer({
 
   function scaledWidth(width: number, points: Point[]) {
     const pressure = points.reduce((sum, point) => sum + point.pressure, 0) / Math.max(points.length, 1);
-    return Math.max(1, width * (0.7 + pressure * 0.6) * (pageSize.width / 900));
+    return Math.max(0.6, width * (0.55 + pressure * 0.4) * (pageSize.width / 900));
   }
 
   function updateNote(annotation: StickyNoteAnnotation, patch: Partial<StickyNoteAnnotation>) {

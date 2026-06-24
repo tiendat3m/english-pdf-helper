@@ -125,14 +125,15 @@ export default function Toolbar({
         <input
           aria-label="Thickness"
           type="range"
-          min="1"
-          max="6"
-          step="1"
+          min="0.5"
+          max="4"
+          step="0.25"
           value={thickness}
           onChange={(event) => onThicknessChange(Number(event.target.value))}
           className="h-1 w-24 accent-sage"
         />
         <Plus className="h-3.5 w-3.5" />
+        <span className="w-7 text-right tabular-nums">{thickness.toFixed(thickness % 1 === 0 ? 0 : 2)}</span>
       </label>
 
       <div className="mx-1 h-8 w-px bg-stone-200 dark:bg-stone-700" />

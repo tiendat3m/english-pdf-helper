@@ -9,7 +9,7 @@ export const initialEditorState: EditorState = {
   tool: "pen",
   penColor: "black",
   highlighterColor: "yellow",
-  thickness: 2,
+  thickness: 1.25,
   theme: "warm",
   workspaceMode: "split",
   inputMode: "all",
