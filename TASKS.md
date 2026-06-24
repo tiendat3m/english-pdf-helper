@@ -27,6 +27,7 @@
 - Switched Ctrl-wheel zoom to a CSS preview scale and delayed PDF.js re-render until wheel input settles.
 - Improved XP-Pen/Huion stylus feel with pointer capture, coalesced pointer samples, lighter point filtering, and stroke stabilization.
 - Made pen strokes thinner by default with finer thickness controls for small tablets like XP-Pen XS.
+- Added a collapsible left library sidebar for a wider handwriting/PDF workspace.
 - Implemented AI Study Coach for selected PDF text with vocabulary, explanation, grammar, and sticky-note saving.
 - Switched AI Study Coach to prefer Gemini free-tier API keys, with OpenAI kept as an optional fallback.
 - Implemented IELTS OS shell: Focus/Split workspace, right-side notebook, vocabulary panel, review map, daily page goal, and band tracker.

@@ -8,6 +8,8 @@ import {
   Brain,
   Flame,
   GraduationCap,
+  PanelLeftClose,
+  PanelLeftOpen,
   NotebookPen,
   Play,
   Sparkles,
@@ -760,33 +762,47 @@ export default function Dashboard() {
 
       {editor.activeTab === "learn" && isWorkspaceOpen && (
         <main className="flex h-[calc(100vh-73px)] min-h-[680px] flex-col lg:flex-row">
-          <PdfSidebar
-            books={activeBooks}
-            deletedBooks={deletedBooks}
-            activeBookId={activeBook?.id ?? null}
-            searchQuery={editor.searchQuery}
-            bookmarks={data.bookmarks}
-            pageStatuses={data.pageStatuses}
-            vocabulary={activeData.vocabulary}
-            currentPage={editor.currentPage}
-            onSearchChange={(value) => setEditor((current) => ({ ...current, searchQuery: value }))}
-            onImport={handleImport}
-            onOpenBook={openBook}
-            onDeleteBook={handleDeleteBook}
-            onRestoreBook={handleRestoreBook}
-            onPermanentDeleteBooks={handlePermanentDeleteBooks}
-            onAddBookmark={handleAddBookmark}
-            onSetPageStatus={handleSetPageStatus}
-            onJumpToPage={changePage}
-          />
+          {!editor.sidebarCollapsed && (
+            <PdfSidebar
+              books={activeBooks}
+              deletedBooks={deletedBooks}
+              activeBookId={activeBook?.id ?? null}
+              searchQuery={editor.searchQuery}
+              bookmarks={data.bookmarks}
+              pageStatuses={data.pageStatuses}
+              vocabulary={activeData.vocabulary}
+              currentPage={editor.currentPage}
+              onSearchChange={(value) => setEditor((current) => ({ ...current, searchQuery: value }))}
+              onCollapse={() => setEditor((current) => ({ ...current, sidebarCollapsed: true }))}
+              onImport={handleImport}
+              onOpenBook={openBook}
+              onDeleteBook={handleDeleteBook}
+              onRestoreBook={handleRestoreBook}
+              onPermanentDeleteBooks={handlePermanentDeleteBooks}
+              onAddBookmark={handleAddBookmark}
+              onSetPageStatus={handleSetPageStatus}
+              onJumpToPage={changePage}
+            />
+          )}
           <section className="flex min-w-0 flex-1 flex-col">
             <div className="border-b border-stone-200 bg-white/78 p-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/78">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
-                  <div className="text-xs text-stone-500 dark:text-stone-400">
-                    {editor.workspaceMode === "split" ? "Split: PDF + Notebook + Vocabulary" : "Focus: PDF centered"} -{" "}
-                    {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"} - {editor.aiEnabled ? "AI on" : "AI off"}
+                <div className="flex min-w-0 items-start gap-2">
+                  <button
+                    type="button"
+                    title={editor.sidebarCollapsed ? "Open library sidebar" : "Close library sidebar"}
+                    onClick={() => setEditor((current) => ({ ...current, sidebarCollapsed: !current.sidebarCollapsed }))}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                  >
+                    {editor.sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                  </button>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
+                    <div className="text-xs text-stone-500 dark:text-stone-400">
+                      {editor.workspaceMode === "split" ? "Split: PDF + Notebook + Vocabulary" : "Focus: PDF centered"} -{" "}
+                      {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"} - {editor.aiEnabled ? "AI on" : "AI off"} -{" "}
+                      {editor.sidebarCollapsed ? "Library hidden" : "Library open"}
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

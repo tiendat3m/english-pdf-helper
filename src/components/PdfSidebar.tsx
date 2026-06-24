@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bookmark, BookOpen, Clock3, GraduationCap, RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
+import { Bookmark, BookOpen, Clock3, GraduationCap, PanelLeftClose, RotateCcw, Search, Trash2, TriangleAlert } from "lucide-react";
 import PdfUploader from "./PdfUploader";
 import { BOOKMARK_CATEGORIES, DELETED_BOOK_RETENTION_DAYS, PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
 import type { BookRecord, BookmarkRecord, PageStatus, PageStatusRecord, VocabularyRecord } from "@/lib/types";
@@ -17,6 +17,7 @@ interface PdfSidebarProps {
   vocabulary: VocabularyRecord[];
   currentPage: number;
   onSearchChange: (value: string) => void;
+  onCollapse: () => void;
   onImport: (file: File) => void;
   onOpenBook: (bookId: string) => void;
   onDeleteBook: (bookId: string) => void;
@@ -39,6 +40,7 @@ export default function PdfSidebar({
   vocabulary,
   currentPage,
   onSearchChange,
+  onCollapse,
   onImport,
   onOpenBook,
   onDeleteBook,
@@ -100,9 +102,19 @@ export default function PdfSidebar({
   return (
     <>
     <aside className="flex h-full w-full flex-col gap-4 overflow-y-auto border-r border-stone-200 bg-white/82 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/82 lg:w-80">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Learn</p>
-        <h2 className="mt-1 text-xl font-bold text-stone-950 dark:text-stone-50">IELTS Library</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Learn</p>
+          <h2 className="mt-1 text-xl font-bold text-stone-950 dark:text-stone-50">IELTS Library</h2>
+        </div>
+        <button
+          type="button"
+          title="Close library sidebar"
+          onClick={onCollapse}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </button>
       </div>
 
       <label className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">

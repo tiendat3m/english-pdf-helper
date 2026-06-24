@@ -12,6 +12,7 @@ export const initialEditorState: EditorState = {
   thickness: 1.25,
   theme: "warm",
   workspaceMode: "split",
+  sidebarCollapsed: false,
   inputMode: "all",
   aiEnabled: true,
   dailyPageGoal: 5,

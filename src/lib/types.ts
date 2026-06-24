@@ -168,6 +168,7 @@ export interface EditorState {
   thickness: number;
   theme: ThemeMode;
   workspaceMode: WorkspaceMode;
+  sidebarCollapsed: boolean;
   inputMode: InputMode;
   aiEnabled: boolean;
   dailyPageGoal: number;
