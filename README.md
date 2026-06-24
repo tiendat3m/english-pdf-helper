@@ -36,14 +36,15 @@ Open `http://localhost:3000`.
 
 ## AI Study Coach
 
-Create `.env` before using AI actions. Gemini is preferred for the free-tier path:
+Create `.env` before using AI actions. Ollama is preferred for local AI:
 
 ```bash
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3-flash-preview
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2
 ```
 
-Restart `npm run dev` after changing environment variables.
+Run `ollama pull llama3.2` first if the model is not installed. Restart `npm run dev` after changing environment variables. If your Ollama server or proxy requires auth, add `OLLAMA_API_KEY`.
 
 In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coach can generate vocabulary notes with IPA, English meaning, Vietnamese meaning, explanations, grammar notes, or sticky study notes. Results can be saved to the Vocabulary tab or as a sticky note on the current PDF page.
 

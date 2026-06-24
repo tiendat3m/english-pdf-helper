@@ -78,6 +78,19 @@ function extractGeminiOutputText(response: unknown) {
     .trim();
 }
 
+function extractOllamaOutputText(response: unknown) {
+  if (!response || typeof response !== "object" || !("message" in response)) {
+    return "";
+  }
+
+  const message = response.message;
+  if (message && typeof message === "object" && "content" in message && typeof message.content === "string") {
+    return message.content.trim();
+  }
+
+  return "";
+}
+
 function fallbackJson(text: string, mode: AiMode) {
   return {
     title: modeLabels[mode],
@@ -123,7 +136,81 @@ function parseJsonOrFallback(outputText: string, text: string, mode: AiMode) {
   }
 }
 
+function stripTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+async function callOllama(prompt: string) {
+  const provider = process.env.AI_PROVIDER?.toLowerCase();
+  const hasOllamaConfig = Boolean(process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || provider === "ollama");
+  if (provider && provider !== "auto" && provider !== "ollama") {
+    return null;
+  }
+  if (!hasOllamaConfig) {
+    return null;
+  }
+
+  const baseUrl = stripTrailingSlash(process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434");
+  const model = process.env.OLLAMA_MODEL ?? "llama3.2";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (process.env.OLLAMA_API_KEY) {
+    headers.Authorization = `Bearer ${process.env.OLLAMA_API_KEY}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        format: "json",
+        stream: false,
+        think: false,
+        options: {
+          temperature: 0.2
+        }
+      })
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? `Ollama request failed: ${error.message}. Is Ollama running at ${baseUrl}?`
+            : `Ollama request failed. Is Ollama running at ${baseUrl}?`,
+        provider: "ollama"
+      },
+      { status: 502 }
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? JSON.stringify(payload.error)
+        : "Ollama request failed.";
+    return NextResponse.json({ error: message, provider: "ollama" }, { status: response.status });
+  }
+
+  return extractOllamaOutputText(payload);
+}
+
 async function callGemini(prompt: string) {
+  const provider = process.env.AI_PROVIDER?.toLowerCase();
+  if (provider && provider !== "auto" && provider !== "gemini") {
+    return null;
+  }
+
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     return null;
@@ -164,6 +251,11 @@ async function callGemini(prompt: string) {
 }
 
 async function callOpenAi(prompt: string) {
+  const provider = process.env.AI_PROVIDER?.toLowerCase();
+  if (provider && provider !== "auto" && provider !== "openai") {
+    return null;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return null;
@@ -212,6 +304,14 @@ export async function POST(request: Request) {
   }
 
   const prompt = buildPrompt(body, text);
+  const ollamaResult = await callOllama(prompt);
+  if (ollamaResult instanceof NextResponse) {
+    return ollamaResult;
+  }
+  if (typeof ollamaResult === "string") {
+    return NextResponse.json(parseJsonOrFallback(ollamaResult, text, body.mode));
+  }
+
   const geminiResult = await callGemini(prompt);
   if (geminiResult instanceof NextResponse) {
     return geminiResult;
@@ -229,7 +329,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    { error: "Missing GEMINI_API_KEY. Add a free Gemini key to .env, or configure OPENAI_API_KEY." },
+    { error: "No AI provider configured. Set AI_PROVIDER=ollama with OLLAMA_MODEL, or configure GEMINI_API_KEY / OPENAI_API_KEY." },
     { status: 500 }
   );
 }
