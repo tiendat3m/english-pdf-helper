@@ -129,6 +129,24 @@ Rules:
 }
 
 function parseJsonOrFallback(outputText: string, text: string, mode: AiMode) {
+  const candidates = [
+    outputText,
+    outputText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+    outputText.match(/\{[\s\S]*\}/)?.[0] ?? ""
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed === "string") {
+        return JSON.parse(parsed);
+      }
+      return parsed;
+    } catch {
+      // Try the next cleanup strategy.
+    }
+  }
+
   try {
     return JSON.parse(outputText);
   } catch {

@@ -324,6 +324,14 @@ export default function PdfViewer({
     });
   }
 
+  function handleTextLayerError(error: Error) {
+    const message = error.message.toLowerCase();
+    if (error.name === "AbortException" || message.includes("cancelled") || message.includes("canceled")) {
+      return;
+    }
+    setPdfError(error.message);
+  }
+
   function handleHighlightCreated(annotation: HighlightAnnotation, anchor: { x: number; y: number }) {
     setHighlightPopup({ annotation, anchor });
   }
@@ -448,6 +456,7 @@ export default function PdfViewer({
                       onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
                       onRenderError={(error) => setPdfError(error.message)}
                       onRenderSuccess={measurePage}
+                      onRenderTextLayerError={handleTextLayerError}
                       onRenderTextLayerSuccess={extractTextItems}
                     />
                   </PdfPageErrorBoundary>
