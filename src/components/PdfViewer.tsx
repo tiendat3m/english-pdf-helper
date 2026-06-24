@@ -35,6 +35,7 @@ type PdfJsViewport = {
 };
 
 type PdfJsPage = {
+  pageNumber?: number;
   getViewport: (params: { scale: number }) => PdfJsViewport;
   getTextContent: () => Promise<{ items: unknown[] }>;
 };
@@ -164,7 +165,8 @@ export default function PdfViewer({
   const pageShellRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
-  const textExtractionTokenRef = useRef(0);
+  const currentPageRef = useRef(currentPage);
+  const renderWidthRef = useRef(0);
   const wheelDeltaRef = useRef(0);
   const wheelFrameRef = useRef<number | null>(null);
   const wheelCommitTimerRef = useRef<number | null>(null);
@@ -183,6 +185,8 @@ export default function PdfViewer({
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
   const visualZoom = previewZoom ?? zoom;
   const previewScale = zoom > 0 ? visualZoom / zoom : 1;
+  currentPageRef.current = currentPage;
+  renderWidthRef.current = renderWidth;
 
   useEffect(() => {
     configurePdfWorker();
@@ -236,7 +240,6 @@ export default function PdfViewer({
       setHighlightPopup(null);
       setPreviewZoom(null);
       previewZoomRef.current = null;
-      textExtractionTokenRef.current += 1;
   }, [book?.id]);
 
   useEffect(() => {
@@ -245,7 +248,6 @@ export default function PdfViewer({
     setPageSize({ width: 0, height: 0 });
     setPreviewZoom(null);
     previewZoomRef.current = null;
-    textExtractionTokenRef.current += 1;
   }, [currentPage, renderWidth]);
 
   useEffect(() => {
@@ -360,12 +362,13 @@ export default function PdfViewer({
   const totalPages = book?.totalPages || 0;
 
   async function extractTextItemsFromPage(page: PdfJsPage) {
-    const token = ++textExtractionTokenRef.current;
+    const expectedPage = page.pageNumber ?? currentPageRef.current;
+    const expectedRenderWidth = renderWidthRef.current;
     try {
       const viewport = page.getViewport({ scale: 1 });
       const textContent = await page.getTextContent();
 
-      if (token !== textExtractionTokenRef.current) {
+      if (expectedPage !== currentPageRef.current || expectedRenderWidth !== renderWidthRef.current) {
         return;
       }
 
