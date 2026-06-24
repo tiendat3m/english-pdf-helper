@@ -193,21 +193,31 @@ export default function AnnotationLayer({
   }
 
   function shouldIncludeTextItem(rect: NormalizedRect, item: PdfTextItem) {
-    if (!rectsOverlap(rect, item.box)) {
+    const verticalPadding = Math.max(rect.height * 0.9, item.box.height * 0.28, 0.004);
+    const expandedRect = {
+      x: rect.x,
+      y: Math.max(0, rect.y - verticalPadding),
+      width: rect.width,
+      height: Math.min(1, rect.height + verticalPadding * 2)
+    };
+
+    if (!rectsOverlap(expandedRect, item.box)) {
       return false;
     }
 
-    const areaOverlap = overlapRatio(rect, item.box);
-    const horizontalOverlap = horizontalOverlapRatio(rect, item.box);
-    const verticalOverlap = verticalOverlapRatio(rect, item.box);
+    const areaOverlap = overlapRatio(expandedRect, item.box);
+    const horizontalOverlap = horizontalOverlapRatio(expandedRect, item.box);
+    const verticalOverlap = verticalOverlapRatio(expandedRect, item.box);
     const itemCenterX = item.box.x + item.box.width / 2;
+    const itemCenterY = item.box.y + item.box.height / 2;
     const rectLeftTolerance = Math.max(0.002, rect.width * 0.08);
+    const centerIsInsideHighlightLine = itemCenterY >= expandedRect.y && itemCenterY <= expandedRect.y + expandedRect.height;
 
     if (isListMarker(item.text)) {
       return areaOverlap >= 0.7 && horizontalOverlap >= 0.72 && itemCenterX >= rect.x - rectLeftTolerance;
     }
 
-    return areaOverlap >= 0.2 && horizontalOverlap >= 0.32 && verticalOverlap >= 0.45;
+    return horizontalOverlap >= 0.22 && (verticalOverlap >= 0.24 || centerIsInsideHighlightLine);
   }
 
   function shouldJoinWithoutSpace(previous: PdfTextItem, current: PdfTextItem) {

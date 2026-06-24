@@ -76,6 +76,14 @@ function multiplyTransform(first: number[], second: number[]) {
   ];
 }
 
+function textSegments(text: string) {
+  return Array.from(text.matchAll(/\S+/g)).map((match) => ({
+    text: match[0],
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length
+  }));
+}
+
 interface PdfPageErrorBoundaryProps {
   children: ReactNode;
   resetKey: string;
@@ -374,31 +382,31 @@ export default function PdfViewer({
 
       const items = textContent.items
         .filter(isPdfJsTextItem)
-        .map((item, order) => {
-          const text = item.str.trim();
-          if (!text) {
-            return null;
+        .flatMap((item, order) => {
+          const segments = textSegments(item.str);
+          if (!segments.length) {
+            return [];
           }
-
           const transform = multiplyTransform(viewport.transform, item.transform);
           const fontHeight = Math.max(Math.hypot(transform[2], transform[3]), Math.abs(item.height), 1);
           const width = Math.max(Math.abs(item.width), 1);
           const x = transform[4];
           const y = transform[5] - fontHeight;
+          const textLength = Math.max(item.str.length, 1);
 
-          return {
-            id: `${currentPage}-${order}`,
-            text,
-            order,
+          return segments.map((segment, segmentIndex) => ({
+            id: `${currentPage}-${order}-${segmentIndex}`,
+            text: segment.text,
+            order: order * 1000 + segmentIndex,
             box: {
-              x: clamp(x / viewport.width, 0, 1),
+              x: clamp((x + (segment.start / textLength) * width) / viewport.width, 0, 1),
               y: clamp(y / viewport.height, 0, 1),
-              width: clamp(width / viewport.width, 0, 1),
+              width: clamp(((segment.end - segment.start) / textLength) * width / viewport.width, 0, 1),
               height: clamp(fontHeight / viewport.height, 0, 1)
             }
-          };
+          }));
         })
-        .filter((item): item is PdfTextItem => Boolean(item));
+        .filter((item): item is PdfTextItem => item.box.width > 0 && item.box.height > 0);
 
       setTextItems(items);
     } catch (error) {
@@ -417,26 +425,48 @@ export default function PdfViewer({
 
     const pageRect = canvas.getBoundingClientRect();
     return Array.from(textSpans)
-      .map((span, order) => {
+      .flatMap((span, order) => {
         const text = span.textContent?.trim() ?? "";
-        const rect = span.getBoundingClientRect();
-        if (!text || rect.width <= 0 || rect.height <= 0) {
-          return null;
+        if (!text) {
+          return [];
         }
 
-        return {
-          id: `${currentPageRef.current}-${order}`,
-          text,
-          order,
-          box: {
-            x: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
-            y: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
-            width: clamp(rect.width / pageRect.width, 0, 1),
-            height: clamp(rect.height / pageRect.height, 0, 1)
-          }
-        };
+        const textNode = Array.from(span.childNodes).find((node): node is Text => node.nodeType === Node.TEXT_NODE);
+        const segments = textSegments(textNode?.nodeValue ?? text);
+        const fallbackRect = span.getBoundingClientRect();
+
+        return segments
+          .map((segment, segmentIndex) => {
+            let rect = fallbackRect;
+            if (textNode) {
+              const range = document.createRange();
+              range.setStart(textNode, segment.start);
+              range.setEnd(textNode, segment.end);
+              const rangeRect = range.getBoundingClientRect();
+              if (rangeRect.width > 0 && rangeRect.height > 0) {
+                rect = rangeRect;
+              }
+            }
+
+            if (rect.width <= 0 || rect.height <= 0) {
+              return null;
+            }
+
+            return {
+              id: `${currentPageRef.current}-${order}-${segmentIndex}`,
+              text: segment.text,
+              order: order * 1000 + segmentIndex,
+              box: {
+                x: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
+                y: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
+                width: clamp(rect.width / pageRect.width, 0, 1),
+                height: clamp(rect.height / pageRect.height, 0, 1)
+              }
+            };
+          })
+          .filter((item): item is PdfTextItem => Boolean(item));
       })
-      .filter((item): item is PdfTextItem => Boolean(item));
+      .filter((item): item is PdfTextItem => item.box.width > 0 && item.box.height > 0);
   }
 
   function extractTextItemsFromLayer() {
