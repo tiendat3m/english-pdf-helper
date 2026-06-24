@@ -18,6 +18,16 @@ import type {
 } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
+type StagePointerEvent = {
+  target: {
+    getStage: () => {
+      getPointerPosition: () => { x: number; y: number } | null;
+      container: () => HTMLDivElement;
+    } | null;
+  };
+  evt: PointerEvent;
+};
+
 interface AnnotationLayerProps {
   bookId: string;
   pageNumber: number;
@@ -37,8 +47,8 @@ interface AnnotationLayerProps {
 
 function normalizePoint(point: { x: number; y: number; pressure: number }, pageSize: { width: number; height: number }): Point {
   return {
-    x: point.x / pageSize.width,
-    y: point.y / pageSize.height,
+    x: Math.max(0, Math.min(1, point.x / pageSize.width)),
+    y: Math.max(0, Math.min(1, point.y / pageSize.height)),
     pressure: point.pressure
   };
 }
@@ -72,6 +82,7 @@ export default function AnnotationLayer({
   const [highlightDraft, setHighlightDraft] = useState<{ start: Point; end: Point } | null>(null);
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const activePointerId = useRef<number | null>(null);
 
   const pageAnnotations = useMemo(
     () => annotations.filter((annotation) => annotation.bookId === bookId && annotation.pageNumber === pageNumber),
@@ -100,6 +111,24 @@ export default function AnnotationLayer({
     }
     smoothed.push(points[points.length - 1]);
     return smoothed;
+  }
+
+  function stabilizePoints(points: Point[]) {
+    if (points.length < 4) {
+      return points;
+    }
+
+    const stabilized: Point[] = [points[0]];
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = stabilized[stabilized.length - 1];
+      const current = points[index];
+      stabilized.push({
+        x: previous.x * 0.28 + current.x * 0.72,
+        y: previous.y * 0.28 + current.y * 0.72,
+        pressure: current.pressure
+      });
+    }
+    return stabilized;
   }
 
   function normalizeRect(start: Point, end: Point): NormalizedRect {
@@ -232,21 +261,80 @@ export default function AnnotationLayer({
       .trim();
   }
 
-  function getStagePoint(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
+  function normalizePressure(event: PointerEvent) {
+    return event.pressure > 0 ? Math.max(0.2, Math.min(1, event.pressure)) : 0.5;
+  }
+
+  function capturePointer(event: PointerEvent) {
+    const target = event.currentTarget;
+    if (target instanceof Element && "setPointerCapture" in target) {
+      target.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function releasePointer(event?: PointerEvent) {
+    const target = event?.currentTarget;
+    if (event && target instanceof Element && "releasePointerCapture" in target) {
+      try {
+        target.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+    }
+    activePointerId.current = null;
+  }
+
+  function getStagePoint(event: StagePointerEvent) {
     const stage = event.target.getStage();
     const pointer = stage?.getPointerPosition();
     if (!pointer) {
       return null;
     }
-    return normalizePoint({ ...pointer, pressure: event.evt.pressure || 0.5 }, pageSize);
+    return normalizePoint({ ...pointer, pressure: normalizePressure(event.evt) }, pageSize);
   }
 
-  function handlePointerDown(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
+  function getStagePoints(event: StagePointerEvent) {
+    const stage = event.target.getStage();
+    const container = stage?.container();
+    if (!stage || !container) {
+      return [];
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const coalescedEvents = event.evt.getCoalescedEvents?.() ?? [event.evt];
+    return coalescedEvents.map((pointerEvent) =>
+      normalizePoint(
+        {
+          x: pointerEvent.clientX - containerRect.left,
+          y: pointerEvent.clientY - containerRect.top,
+          pressure: normalizePressure(pointerEvent)
+        },
+        pageSize
+      )
+    );
+  }
+
+  function appendDraftPoints(points: Point[], pointerType: string) {
+    setDraft((current) => {
+      const minDistance = pointerType === "pen" ? 0.0009 : 0.0018;
+      return points.reduce<Point[]>((next, point) => {
+        const last = next[next.length - 1];
+        if (last && Math.hypot(last.x - point.x, last.y - point.y) < minDistance) {
+          return next;
+        }
+        return [...next, point];
+      }, current);
+    });
+  }
+
+  function handlePointerDown(event: StagePointerEvent) {
     if (shouldIgnorePointer(event.evt)) {
       return;
     }
 
     event.evt.preventDefault();
+    activePointerId.current = event.evt.pointerId;
+    capturePointer(event.evt);
     const point = getStagePoint(event);
     if (!point) {
       return;
@@ -298,13 +386,18 @@ export default function AnnotationLayer({
     }
   }
 
-  function handlePointerMove(event: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null }; evt: PointerEvent }) {
+  function handlePointerMove(event: StagePointerEvent) {
     if (shouldIgnorePointer(event.evt)) {
       return;
     }
 
+    if (activePointerId.current !== null && event.evt.pointerId !== activePointerId.current) {
+      return;
+    }
+
     if (tool === "highlighter" && highlightDraft) {
-      const point = getStagePoint(event);
+      const points = getStagePoints(event);
+      const point = points[points.length - 1] ?? getStagePoint(event);
       if (point) {
         setHighlightDraft((current) => (current ? { ...current, end: point } : current));
       }
@@ -314,20 +407,16 @@ export default function AnnotationLayer({
     if (!draft.length || tool !== "pen") {
       return;
     }
-    const point = getStagePoint(event);
-    if (point) {
-      setDraft((current) => {
-        const last = current[current.length - 1];
-        const minDistance = 0.0018;
-        if (last && Math.hypot(last.x - point.x, last.y - point.y) < minDistance) {
-          return current;
-        }
-        return [...current, point];
-      });
+
+    const points = getStagePoints(event);
+    if (points.length) {
+      appendDraftPoints(points, event.evt.pointerType);
     }
   }
 
-  function commitDraft() {
+  function commitDraft(event?: StagePointerEvent) {
+    releasePointer(event?.evt);
+
     if (tool === "highlighter" && highlightDraft) {
       const rect = normalizeRect(highlightDraft.start, highlightDraft.end);
       setHighlightDraft(null);
@@ -362,7 +451,7 @@ export default function AnnotationLayer({
       return;
     }
 
-    const points = smoothPoints(draft);
+    const points = smoothPoints(stabilizePoints(draft));
 
     onAddAnnotation({
       id: uuid(),
@@ -408,6 +497,8 @@ export default function AnnotationLayer({
         width: pageSize.width,
         height: pageSize.height,
         touchAction: tool === "pan" ? "auto" : "none",
+        userSelect: tool === "pan" ? "auto" : "none",
+        WebkitUserSelect: tool === "pan" ? "auto" : "none",
         cursor: tool === "pen" || tool === "highlighter" ? DRAW_CURSOR : undefined
       }}
     >
