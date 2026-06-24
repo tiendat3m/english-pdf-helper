@@ -195,6 +195,41 @@ export default function AnnotationLayer({
     );
   }
 
+  function strokeBox(points: Point[]): NormalizedRect | null {
+    if (!points.length) {
+      return null;
+    }
+
+    const left = Math.min(...points.map((point) => point.x));
+    const top = Math.min(...points.map((point) => point.y));
+    const right = Math.max(...points.map((point) => point.x));
+    const bottom = Math.max(...points.map((point) => point.y));
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+
+  function hasHandwritingForRect(rect: NormalizedRect) {
+    const padding = Math.max(rect.height * 0.5, 0.004);
+    const expandedRect = {
+      x: Math.max(0, rect.x - padding),
+      y: Math.max(0, rect.y - padding),
+      width: Math.min(1, rect.width + padding * 2),
+      height: Math.min(1, rect.height + padding * 2)
+    };
+
+    return pageAnnotations.some((annotation) => {
+      if (annotation.type !== "stroke" || annotation.tool !== "pen") {
+        return false;
+      }
+      const box = strokeBox(annotation.points);
+      return Boolean(box && rectsOverlap(expandedRect, box));
+    });
+  }
+
   function overlapRatio(first: NormalizedRect, second: NormalizedRect) {
     const xOverlap = Math.max(0, Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x));
     const yOverlap = Math.max(0, Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y));
@@ -531,6 +566,8 @@ export default function AnnotationLayer({
         return;
       }
 
+      const selectedText = getTextForRect(rect);
+      const selectedTextSource = selectedText ? "pdf-text" : hasHandwritingForRect(rect) ? "handwriting" : "visual";
       const annotation: HighlightAnnotation = {
         id: uuid(),
         bookId,
@@ -539,7 +576,8 @@ export default function AnnotationLayer({
         color: HIGHLIGHT_COLORS[highlighterColor],
         opacity: 0.28,
         rect,
-        selectedText: getTextForRect(rect),
+        selectedText,
+        selectedTextSource,
         createdAt: nowIso()
       };
 

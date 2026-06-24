@@ -39,7 +39,7 @@ Pen pressure is read from `PointerEvent.pressure`. The renderer averages pressur
 
 Stylus-only mode filters input to `PointerEvent.pointerType === "pen"`, which helps XP-Pen, Huion, Wacom, and touch-screen users avoid accidental palm/touch marks. Stroke capture also drops very-close points and applies light smoothing before saving.
 
-Highlighter mode creates normalized rectangle annotations instead of freehand strokes. `PdfViewer` reads the rendered PDF text layer spans after page render, stores normalized text item boxes, and passes them to `AnnotationLayer`. When a highlight rectangle is committed, overlapping text items are joined in reading order and saved as `selectedText` on the highlight annotation. Empty text still saves as a visual highlight.
+Highlighter mode creates normalized rectangle annotations instead of freehand strokes. `PdfViewer` reads the rendered PDF text layer spans after page render, stores normalized text item boxes, and passes them to `AnnotationLayer`. When a highlight rectangle is committed, overlapping text items are joined in reading order and saved as `selectedText` on the highlight annotation. Empty text still saves as a visual highlight. If the highlight overlaps user pen strokes, the annotation is marked as handwriting-sourced, but the app does not OCR handwriting into editable text yet.
 
 ## IELTS OS Workspace
 

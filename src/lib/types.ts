@@ -87,6 +87,7 @@ export interface HighlightAnnotation {
   opacity: number;
   rect: NormalizedRect;
   selectedText: string;
+  selectedTextSource?: "pdf-text" | "handwriting" | "visual";
   createdAt: string;
 }
 

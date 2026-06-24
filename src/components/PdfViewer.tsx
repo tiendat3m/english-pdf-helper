@@ -509,6 +509,26 @@ export default function PdfViewer({
     };
   }
 
+  function highlightPopupText(annotation: HighlightAnnotation) {
+    if (annotation.selectedText) {
+      return annotation.selectedText;
+    }
+    if (annotation.selectedTextSource === "handwriting") {
+      return "Handwriting selected. OCR is not enabled yet, so this ink is saved visually.";
+    }
+    return "No PDF text detected in this highlight.";
+  }
+
+  function noteTextForHighlight(annotation: HighlightAnnotation) {
+    if (annotation.selectedText) {
+      return annotation.selectedText;
+    }
+    if (annotation.selectedTextSource === "handwriting") {
+      return "Handwriting selected";
+    }
+    return "Highlighted area";
+  }
+
   function saveHighlightNote(annotation: HighlightAnnotation) {
     if (!book) {
       return;
@@ -521,7 +541,7 @@ export default function PdfViewer({
       type: "note",
       x: clamp(annotation.rect.x + annotation.rect.width + 0.02, 0.02, 0.82),
       y: clamp(annotation.rect.y, 0.02, 0.86),
-      text: annotation.selectedText || "Highlighted area",
+      text: noteTextForHighlight(annotation),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -669,7 +689,7 @@ export default function PdfViewer({
                       <X className="h-4 w-4" />
                     </button>
                     <div className="max-h-24 overflow-y-auto rounded-md bg-paper p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
-                      {highlightPopup.annotation.selectedText || "No PDF text detected in this highlight."}
+                      {highlightPopupText(highlightPopup.annotation)}
                     </div>
                     <div className="mt-3 grid grid-cols-1 gap-2">
                       <button
