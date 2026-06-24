@@ -141,6 +141,37 @@ export default function PdfViewer({
   }, []);
 
   useEffect(() => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    const shouldIgnoreTextLayerAbort = (args: unknown[]) => {
+      const message = args
+        .map((arg) => (arg instanceof Error ? `${arg.name} ${arg.message}` : String(arg)))
+        .join(" ");
+
+      return message.includes("AbortException") && /TextLayer task cancel(?:l)?ed/i.test(message);
+    };
+
+    // react-pdf logs cancelled TextLayer renders before our error callback can ignore them.
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      if (shouldIgnoreTextLayerAbort(args)) {
+        return;
+      }
+      originalWarn(...args);
+    };
+    console.error = (...args: Parameters<typeof console.error>) => {
+      if (shouldIgnoreTextLayerAbort(args)) {
+        return;
+      }
+      originalError(...args);
+    };
+
+    return () => {
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
+  }, []);
+
+  useEffect(() => {
     zoomRef.current = zoom;
     onZoomChangeRef.current = onZoomChange;
     if (previewZoomRef.current !== null && Math.abs(previewZoomRef.current - zoom) < 0.001) {
