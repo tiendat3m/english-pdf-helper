@@ -28,6 +28,53 @@ const AnnotationLayer = dynamic(() => import("./AnnotationLayer"), { ssr: false 
 
 configurePdfWorker();
 
+type PdfJsViewport = {
+  width: number;
+  height: number;
+  transform: number[];
+};
+
+type PdfJsPage = {
+  getViewport: (params: { scale: number }) => PdfJsViewport;
+  getTextContent: () => Promise<{ items: unknown[] }>;
+};
+
+type PdfJsTextItem = {
+  str: string;
+  width: number;
+  height: number;
+  transform: number[];
+};
+
+function isPdfJsTextItem(item: unknown): item is PdfJsTextItem {
+  if (!item || typeof item !== "object") {
+    return false;
+  }
+
+  return (
+    "str" in item &&
+    typeof item.str === "string" &&
+    "width" in item &&
+    typeof item.width === "number" &&
+    "height" in item &&
+    typeof item.height === "number" &&
+    "transform" in item &&
+    Array.isArray(item.transform) &&
+    item.transform.length >= 6
+  );
+}
+
+function multiplyTransform(first: number[], second: number[]) {
+  return [
+    first[0] * second[0] + first[2] * second[1],
+    first[1] * second[0] + first[3] * second[1],
+    first[0] * second[2] + first[2] * second[3],
+    first[1] * second[2] + first[3] * second[3],
+    first[0] * second[4] + first[2] * second[5] + first[4],
+    first[1] * second[4] + first[3] * second[5] + first[5]
+  ];
+}
+
 interface PdfPageErrorBoundaryProps {
   children: ReactNode;
   resetKey: string;
@@ -117,6 +164,7 @@ export default function PdfViewer({
   const pageShellRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
+  const textExtractionTokenRef = useRef(0);
   const wheelDeltaRef = useRef(0);
   const wheelFrameRef = useRef<number | null>(null);
   const wheelCommitTimerRef = useRef<number | null>(null);
@@ -188,6 +236,7 @@ export default function PdfViewer({
       setHighlightPopup(null);
       setPreviewZoom(null);
       previewZoomRef.current = null;
+      textExtractionTokenRef.current += 1;
   }, [book?.id]);
 
   useEffect(() => {
@@ -196,6 +245,7 @@ export default function PdfViewer({
     setPageSize({ width: 0, height: 0 });
     setPreviewZoom(null);
     previewZoomRef.current = null;
+    textExtractionTokenRef.current += 1;
   }, [currentPage, renderWidth]);
 
   useEffect(() => {
@@ -309,12 +359,57 @@ export default function PdfViewer({
   const pageRenderKey = `${book?.id ?? "no-book"}-${currentPage}-${renderWidth}`;
   const totalPages = book?.totalPages || 0;
 
-  function extractTextItems() {
+  async function extractTextItemsFromPage(page: PdfJsPage) {
+    const token = ++textExtractionTokenRef.current;
+    try {
+      const viewport = page.getViewport({ scale: 1 });
+      const textContent = await page.getTextContent();
+
+      if (token !== textExtractionTokenRef.current) {
+        return;
+      }
+
+      const items = textContent.items
+        .filter(isPdfJsTextItem)
+        .map((item, order) => {
+          const text = item.str.trim();
+          if (!text) {
+            return null;
+          }
+
+          const transform = multiplyTransform(viewport.transform, item.transform);
+          const fontHeight = Math.max(Math.hypot(transform[2], transform[3]), Math.abs(item.height), 1);
+          const width = Math.max(Math.abs(item.width), 1);
+          const x = transform[4];
+          const y = transform[5] - fontHeight;
+
+          return {
+            id: `${currentPage}-${order}`,
+            text,
+            order,
+            box: {
+              x: clamp(x / viewport.width, 0, 1),
+              y: clamp(y / viewport.height, 0, 1),
+              width: clamp(width / viewport.width, 0, 1),
+              height: clamp(fontHeight / viewport.height, 0, 1)
+            }
+          };
+        })
+        .filter((item): item is PdfTextItem => Boolean(item));
+
+      setTextItems(items);
+    } catch (error) {
+      if (error instanceof Error) {
+        handleTextLayerError(error);
+      }
+    }
+  }
+
+  function extractTextItemsFromLayer() {
     window.requestAnimationFrame(() => {
       const canvas = pageShellRef.current?.querySelector("canvas");
       const textSpans = pageShellRef.current?.querySelectorAll(".react-pdf__Page__textContent span");
       if (!canvas || !textSpans?.length) {
-        setTextItems([]);
         return;
       }
 
@@ -341,7 +436,9 @@ export default function PdfViewer({
         })
         .filter((item): item is PdfTextItem => Boolean(item));
 
-      setTextItems(items);
+      if (items.length > 0) {
+        setTextItems(items);
+      }
     });
   }
 
@@ -484,11 +581,14 @@ export default function PdfViewer({
                       renderTextLayer
                       loading={<div className="rounded-lg bg-white p-8 text-sm text-stone-500 shadow-tool">Rendering page...</div>}
                       onLoadError={(error) => setPdfError(error.message)}
-                      onLoadSuccess={() => setPageSize({ width: 0, height: 0 })}
+                      onLoadSuccess={(page) => {
+                        setPageSize({ width: 0, height: 0 });
+                        void extractTextItemsFromPage(page);
+                      }}
                       onRenderError={(error) => setPdfError(error.message)}
                       onRenderSuccess={measurePage}
                       onRenderTextLayerError={handleTextLayerError}
-                      onRenderTextLayerSuccess={extractTextItems}
+                      onRenderTextLayerSuccess={extractTextItemsFromLayer}
                     />
                   </PdfPageErrorBoundary>
                 ) : (
