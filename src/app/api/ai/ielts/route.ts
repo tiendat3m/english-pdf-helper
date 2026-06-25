@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-type AiMode = "vocab" | "explain" | "grammar" | "note";
+type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
 
 interface AiRequestBody {
   mode: AiMode;
@@ -13,11 +13,12 @@ const modeLabels: Record<AiMode, string> = {
   vocab: "vocabulary card",
   explain: "clear IELTS explanation",
   grammar: "grammar note",
-  note: "study note"
+  note: "study note",
+  solve: "exercise solver"
 };
 
 function isAiMode(value: unknown): value is AiMode {
-  return value === "vocab" || value === "explain" || value === "grammar" || value === "note";
+  return value === "vocab" || value === "explain" || value === "grammar" || value === "note" || value === "solve";
 }
 
 function extractOpenAiOutputText(response: unknown) {
@@ -124,6 +125,10 @@ Rules:
 - Keep output concise and useful for a PDF margin note.
 - If mode is vocab, focus on IPA pronunciation, part of speech, word/phrase meaning, Vietnamese meaning, collocation, IELTS usage, and one natural example.
 - If mode is grammar, identify the grammar pattern and why it matters.
+- If mode is solve, solve the selected exercise text. Put the answer first.
+- For mode solve, title should be "Answer: ..." and summary should include the completed sentence or answer list.
+- For fill-in-the-blank verb exercises, choose the correct verb form and put the short grammar reason in grammar.
+- For present simple vs present continuous exercises, use present continuous for changes happening around now, current temporary situations, and trends; use present simple for habits, facts, routines, and stative verbs.
 - ipa should be a standard IPA transcription when the selected text is a word or short phrase; otherwise use an empty string.
 - partOfSpeech should be short, e.g. noun, verb, adjective, adverb, phrase, phrasal verb, collocation.
 - vietnamese should briefly explain in Vietnamese.

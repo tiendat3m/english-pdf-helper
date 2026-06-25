@@ -51,7 +51,7 @@ Most interactions update React state optimistically, then persist to IndexedDB. 
 
 ## AI Study Coach
 
-`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls Ollama first when `AI_PROVIDER=ollama` or `OLLAMA_MODEL` / `OLLAMA_BASE_URL` is configured. It supports local Ollama and Ollama cloud at `https://ollama.com/api`, uses `/api/chat` with `stream: false` and `format: "json"`, then can fall back to Gemini or OpenAI when those providers are configured. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, or sticky-note creation.
+`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls Ollama first when `AI_PROVIDER=ollama` or `OLLAMA_MODEL` / `OLLAMA_BASE_URL` is configured. It supports local Ollama and Ollama cloud at `https://ollama.com/api`, uses `/api/chat` with `stream: false` and `format: "json"`, then can fall back to Gemini or OpenAI when those providers are configured. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, exercise solving, or sticky-note creation. Exercise solving works on detected PDF text; handwriting still needs a future OCR/vision pass.
 
 The browser never receives provider API keys. Set `OLLAMA_MODEL`, `GEMINI_MODEL`, or `OPENAI_MODEL` to change models without code changes.
 

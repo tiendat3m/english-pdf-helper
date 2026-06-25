@@ -57,7 +57,7 @@ type VocabularyDraft = Omit<
   "id" | "ipa" | "partOfSpeech" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
 > | null;
 
-type AiMode = "vocab" | "explain" | "grammar" | "note";
+type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
 
 interface AiResult {
   title: string;
@@ -886,7 +886,7 @@ export default function Dashboard() {
                   setAiResult(null);
                   setAiError(null);
                   setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
-                  if (mode === "explain") {
+                  if (mode === "explain" || mode === "solve") {
                     void analyzeSelection(selection, mode);
                   }
                 }}
@@ -955,9 +955,10 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mt-4 grid gap-2 sm:grid-cols-5">
               {([
                 ["vocab", "Vocab"],
+                ["solve", "Solve"],
                 ["explain", "Explain"],
                 ["grammar", "Grammar"],
                 ["note", "Note"]

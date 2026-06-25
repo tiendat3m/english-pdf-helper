@@ -145,7 +145,7 @@ interface PdfViewerProps {
   onDeleteAnnotation: (id: string) => void;
   onVocabularyCandidate: (
     record: Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt">,
-    mode?: "vocab" | "explain" | "grammar" | "note"
+    mode?: "vocab" | "explain" | "grammar" | "note" | "solve"
   ) => void;
 }
 
@@ -711,17 +711,30 @@ export default function PdfViewer({
                         Add Note
                       </button>
                       {aiEnabled && (
-                        <button
-                          type="button"
-                          disabled={!highlightPopup.annotation.selectedText}
-                          onClick={() => {
-                            onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
-                            setHighlightPopup(null);
-                          }}
-                          className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
-                        >
-                          Explain with AI
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={!highlightPopup.annotation.selectedText}
+                            onClick={() => {
+                              onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "solve");
+                              setHighlightPopup(null);
+                            }}
+                            className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
+                          >
+                            Solve with AI
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!highlightPopup.annotation.selectedText}
+                            onClick={() => {
+                              onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
+                              setHighlightPopup(null);
+                            }}
+                            className="rounded-md border border-stone-200 px-3 py-2 text-xs font-bold text-stone-700 hover:border-sage disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-100"
+                          >
+                            Explain with AI
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
