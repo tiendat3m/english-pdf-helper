@@ -49,7 +49,7 @@ export default function VocabularyPanel({
   const visible = vocabulary
     .filter((item) => {
       const haystack =
-        `${item.word} ${item.ipa ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
+        `${item.word} ${item.ipa ?? ""} ${item.partOfSpeech ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
       return haystack.includes(search.toLowerCase()) && (filter === "all" || item.status === filter);
     })
     .sort((a, b) => {
@@ -105,9 +105,10 @@ export default function VocabularyPanel({
 
         <div className="mt-6 overflow-x-auto rounded-lg border border-stone-200 bg-white shadow-paper dark:border-stone-800 dark:bg-stone-950">
           <div className="min-w-[1180px]">
-            <div className="grid grid-cols-[1fr_0.9fr_1.35fr_1.2fr_1.35fr_1fr_0.8fr_44px] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
+            <div className="grid grid-cols-[1fr_0.75fr_0.85fr_1.25fr_1.15fr_1.25fr_1fr_0.8fr_44px] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
               <span>Word</span>
               <span>IPA</span>
+              <span>Part</span>
               <span>Meaning</span>
               <span>Vietnamese</span>
               <span>Example</span>
@@ -119,7 +120,7 @@ export default function VocabularyPanel({
               visible.map((item) => (
                 <div
                   key={item.id}
-                  className="grid grid-cols-[1fr_0.9fr_1.35fr_1.2fr_1.35fr_1fr_0.8fr_44px] gap-3 border-b border-stone-100 px-4 py-4 text-sm last:border-b-0 dark:border-stone-800"
+                  className="grid grid-cols-[1fr_0.75fr_0.85fr_1.25fr_1.15fr_1.25fr_1fr_0.8fr_44px] gap-3 border-b border-stone-100 px-4 py-4 text-sm last:border-b-0 dark:border-stone-800"
                 >
                   <div className="flex items-start gap-2">
                     <button
@@ -133,6 +134,7 @@ export default function VocabularyPanel({
                     <div className="min-w-0 font-bold text-stone-950 dark:text-stone-50">{item.word}</div>
                   </div>
                   <div className="text-xs font-semibold leading-5 text-sage">{item.ipa || "Add IPA"}</div>
+                  <div className="text-xs font-bold capitalize leading-5 text-stone-600 dark:text-stone-300">{item.partOfSpeech || "Add part"}</div>
                   <div className="text-stone-700 dark:text-stone-200">{item.meaning || "Add English meaning during review"}</div>
                   <div className="text-stone-700 dark:text-stone-200">{item.vietnameseMeaning || "Add Vietnamese meaning"}</div>
                   <div className="text-stone-600 dark:text-stone-300">{item.example || "Add your own sentence"}</div>

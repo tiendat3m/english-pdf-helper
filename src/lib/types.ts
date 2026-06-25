@@ -126,6 +126,7 @@ export interface VocabularyRecord {
   id: string;
   word: string;
   ipa?: string;
+  partOfSpeech?: string;
   meaning: string;
   vietnameseMeaning?: string;
   example: string;

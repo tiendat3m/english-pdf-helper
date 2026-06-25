@@ -54,7 +54,7 @@ import { v4 as uuid } from "uuid";
 
 type VocabularyDraft = Omit<
   VocabularyRecord,
-  "id" | "ipa" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
+  "id" | "ipa" | "partOfSpeech" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
 > | null;
 
 type AiMode = "vocab" | "explain" | "grammar" | "note";
@@ -63,6 +63,7 @@ interface AiResult {
   title: string;
   summary: string;
   ipa: string;
+  partOfSpeech: string;
   meaning: string;
   example: string;
   grammar: string;
@@ -95,7 +96,7 @@ export default function Dashboard() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [vocabularyMeta, setVocabularyMeta] = useState({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
+  const [vocabularyMeta, setVocabularyMeta] = useState({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
@@ -452,6 +453,7 @@ export default function Dashboard() {
         title: payload.title || "AI study note",
         summary: payload.summary || "",
         ipa: payload.ipa || "",
+        partOfSpeech: payload.partOfSpeech || "",
         meaning: payload.meaning || "",
         example: payload.example || "",
         grammar: payload.grammar || "",
@@ -462,6 +464,7 @@ export default function Dashboard() {
       setAiResult(nextResult);
       setVocabularyMeta({
         ipa: nextResult.ipa,
+        partOfSpeech: nextResult.partOfSpeech,
         meaning: nextResult.meaning || nextResult.summary,
         vietnameseMeaning: nextResult.vietnamese,
         example: nextResult.example
@@ -489,6 +492,7 @@ export default function Dashboard() {
       ...aiSelection,
       id: uuid(),
       ipa: vocabularyMeta.ipa || aiResult?.ipa || "",
+      partOfSpeech: vocabularyMeta.partOfSpeech || aiResult?.partOfSpeech || "",
       meaning: vocabularyMeta.meaning || aiResult?.meaning || aiResult?.summary || "",
       vietnameseMeaning: vocabularyMeta.vietnameseMeaning || aiResult?.vietnamese || "",
       example: vocabularyMeta.example || aiResult?.example || "",
@@ -501,7 +505,7 @@ export default function Dashboard() {
     setAiSelection(null);
     setAiResult(null);
     setAiError(null);
-    setVocabularyMeta({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
+    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
   }
 
   function handleSaveAiNote() {
@@ -881,7 +885,7 @@ export default function Dashboard() {
                   setAiMode(mode);
                   setAiResult(null);
                   setAiError(null);
-                  setVocabularyMeta({ ipa: "", meaning: "", vietnameseMeaning: "", example: "" });
+                  setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
                   if (mode === "explain") {
                     void analyzeSelection(selection, mode);
                   }
@@ -929,7 +933,11 @@ export default function Dashboard() {
                   AI Study Coach
                 </p>
                 <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">{aiSelection.word}</h2>
-                {vocabularyMeta.ipa && <p className="mt-1 text-sm font-semibold text-sage">{vocabularyMeta.ipa}</p>}
+                {(vocabularyMeta.ipa || vocabularyMeta.partOfSpeech) && (
+                  <p className="mt-1 text-sm font-semibold text-sage">
+                    {[vocabularyMeta.partOfSpeech, vocabularyMeta.ipa].filter(Boolean).join(" · ")}
+                  </p>
+                )}
                 <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
                   {aiSelection.sourceBookTitle} - page {aiSelection.sourcePage}
                 </p>
@@ -994,6 +1002,12 @@ export default function Dashboard() {
                       <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.ipa}</p>
                     </div>
                   )}
+                  {aiResult.partOfSpeech && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Part of speech</div>
+                      <p className="mt-1 capitalize text-stone-700 dark:text-stone-200">{aiResult.partOfSpeech}</p>
+                    </div>
+                  )}
                   {aiResult.meaning && (
                     <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
                       <div className="text-xs font-bold uppercase tracking-wide text-sage">Meaning</div>
@@ -1039,6 +1053,15 @@ export default function Dashboard() {
                   onChange={(event) => setVocabularyMeta((current) => ({ ...current, meaning: event.target.value }))}
                   className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
                   placeholder="IELTS meaning"
+                />
+              </label>
+              <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                Part of speech
+                <input
+                  value={vocabularyMeta.partOfSpeech}
+                  onChange={(event) => setVocabularyMeta((current) => ({ ...current, partOfSpeech: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                  placeholder="noun, verb, adjective, phrase..."
                 />
               </label>
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
