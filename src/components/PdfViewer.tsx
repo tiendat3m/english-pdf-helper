@@ -14,6 +14,7 @@ import type {
   HighlightAnnotation,
   HighlightColor,
   InputMode,
+  NormalizedRect,
   PdfTextItem,
   StickyNoteAnnotation,
   StrokeColor,
@@ -45,6 +46,14 @@ type PdfJsTextItem = {
   width: number;
   height: number;
   transform: number[];
+};
+
+type VocabularyCandidate = Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt"> & {
+  selectedImageDataUrl?: string;
+};
+
+type HighlightPopupAnnotation = HighlightAnnotation & {
+  selectedImageDataUrl?: string;
 };
 
 function isPdfJsTextItem(item: unknown): item is PdfJsTextItem {
@@ -144,7 +153,7 @@ interface PdfViewerProps {
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
   onVocabularyCandidate: (
-    record: Omit<VocabularyRecord, "id" | "meaning" | "example" | "status" | "createdAt" | "updatedAt">,
+    record: VocabularyCandidate,
     mode?: "vocab" | "explain" | "grammar" | "note" | "solve"
   ) => void;
 }
@@ -187,7 +196,7 @@ export default function PdfViewer({
   const [isDocumentReady, setIsDocumentReady] = useState(false);
   const [textItems, setTextItems] = useState<PdfTextItem[]>([]);
   const [highlightPopup, setHighlightPopup] = useState<{
-    annotation: HighlightAnnotation;
+    annotation: HighlightPopupAnnotation;
     anchor: { x: number; y: number };
   } | null>(null);
   const renderWidth = useMemo(() => Math.round(baseWidth * zoom), [baseWidth, zoom]);
@@ -496,22 +505,88 @@ export default function PdfViewer({
     setPdfError(error.message);
   }
 
-  function handleHighlightCreated(annotation: HighlightAnnotation, anchor: { x: number; y: number }) {
-    setHighlightPopup({ annotation, anchor });
+  function captureHighlightImage(rect: NormalizedRect) {
+    const canvases = Array.from(pageShellRef.current?.querySelectorAll("canvas") ?? []);
+    const pdfCanvas = canvases[0];
+    if (!pdfCanvas) {
+      return "";
+    }
+
+    const pageRect = pdfCanvas.getBoundingClientRect();
+    const compositeCanvas = document.createElement("canvas");
+    compositeCanvas.width = pdfCanvas.width;
+    compositeCanvas.height = pdfCanvas.height;
+    const compositeContext = compositeCanvas.getContext("2d");
+    if (!compositeContext) {
+      return "";
+    }
+
+    compositeContext.drawImage(pdfCanvas, 0, 0);
+    canvases.slice(1).forEach((canvas) => {
+      const style = window.getComputedStyle(canvas);
+      const canvasRect = canvas.getBoundingClientRect();
+      if (style.display === "none" || style.visibility === "hidden" || canvasRect.width <= 0 || canvasRect.height <= 0) {
+        return;
+      }
+
+      const targetX = ((canvasRect.left - pageRect.left) / pageRect.width) * compositeCanvas.width;
+      const targetY = ((canvasRect.top - pageRect.top) / pageRect.height) * compositeCanvas.height;
+      const targetWidth = (canvasRect.width / pageRect.width) * compositeCanvas.width;
+      const targetHeight = (canvasRect.height / pageRect.height) * compositeCanvas.height;
+      compositeContext.drawImage(canvas, targetX, targetY, targetWidth, targetHeight);
+    });
+
+    const padding = 0.012;
+    const x = clamp(rect.x - padding, 0, 1);
+    const y = clamp(rect.y - padding, 0, 1);
+    const right = clamp(rect.x + rect.width + padding, 0, 1);
+    const bottom = clamp(rect.y + rect.height + padding, 0, 1);
+    const sourceX = Math.round(x * compositeCanvas.width);
+    const sourceY = Math.round(y * compositeCanvas.height);
+    const sourceWidth = Math.max(1, Math.round((right - x) * compositeCanvas.width));
+    const sourceHeight = Math.max(1, Math.round((bottom - y) * compositeCanvas.height));
+
+    const maxSide = 1400;
+    const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    outputCanvas.height = Math.max(1, Math.round(sourceHeight * scale));
+
+    const context = outputCanvas.getContext("2d");
+    if (!context) {
+      return "";
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(compositeCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, outputCanvas.width, outputCanvas.height);
+    return outputCanvas.toDataURL("image/jpeg", 0.88);
   }
 
-  function highlightVocabularyRecord(annotation: HighlightAnnotation) {
+  function handleHighlightCreated(annotation: HighlightAnnotation, anchor: { x: number; y: number }) {
+    const selectedImageDataUrl = annotation.selectedText ? "" : captureHighlightImage(annotation.rect);
+    setHighlightPopup({
+      annotation: selectedImageDataUrl ? { ...annotation, selectedImageDataUrl } : annotation,
+      anchor
+    });
+  }
+
+  function highlightVocabularyRecord(annotation: HighlightPopupAnnotation) {
     return {
       word: annotation.selectedText || "Highlighted passage",
       sourceBookId: annotation.bookId,
       sourceBookTitle: book?.title ?? "Unknown PDF",
-      sourcePage: annotation.pageNumber
+      sourcePage: annotation.pageNumber,
+      selectedImageDataUrl: annotation.selectedImageDataUrl
     };
   }
 
-  function highlightPopupText(annotation: HighlightAnnotation) {
+  function highlightPopupText(annotation: HighlightPopupAnnotation) {
     if (annotation.selectedText) {
       return annotation.selectedText;
+    }
+    if (annotation.selectedImageDataUrl) {
+      return "No PDF text detected. I captured this selected image for AI solving.";
     }
     if (annotation.selectedTextSource === "handwriting") {
       return "Handwriting selected. OCR is not enabled yet, so this ink is saved visually.";
@@ -527,6 +602,10 @@ export default function PdfViewer({
       return "Handwriting selected";
     }
     return "Highlighted area";
+  }
+
+  function canUseAiForHighlight(annotation: HighlightPopupAnnotation) {
+    return Boolean(annotation.selectedText || annotation.selectedImageDataUrl);
   }
 
   function saveHighlightNote(annotation: HighlightAnnotation) {
@@ -714,7 +793,7 @@ export default function PdfViewer({
                         <>
                           <button
                             type="button"
-                            disabled={!highlightPopup.annotation.selectedText}
+                            disabled={!canUseAiForHighlight(highlightPopup.annotation)}
                             onClick={() => {
                               onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "solve");
                               setHighlightPopup(null);
@@ -725,7 +804,7 @@ export default function PdfViewer({
                           </button>
                           <button
                             type="button"
-                            disabled={!highlightPopup.annotation.selectedText}
+                            disabled={!canUseAiForHighlight(highlightPopup.annotation)}
                             onClick={() => {
                               onVocabularyCandidate(highlightVocabularyRecord(highlightPopup.annotation), "explain");
                               setHighlightPopup(null);

@@ -39,7 +39,7 @@ Pen pressure is read from `PointerEvent.pressure`. The renderer averages pressur
 
 Stylus-only mode filters input to `PointerEvent.pointerType === "pen"`, which helps XP-Pen, Huion, Wacom, and touch-screen users avoid accidental palm/touch marks. Stroke capture also drops very-close points and applies light smoothing before saving.
 
-Highlighter mode creates normalized rectangle annotations instead of freehand strokes. `PdfViewer` reads the rendered PDF text layer spans after page render, stores normalized text item boxes, and passes them to `AnnotationLayer`. When a highlight rectangle is committed, overlapping text items are joined in reading order and saved as `selectedText` on the highlight annotation. Empty text still saves as a visual highlight. If the highlight overlaps user pen strokes, the annotation is marked as handwriting-sourced, but the app does not OCR handwriting into editable text yet.
+Highlighter mode creates normalized rectangle annotations instead of freehand strokes. `PdfViewer` reads the rendered PDF text layer spans after page render, stores normalized text item boxes, and passes them to `AnnotationLayer`. When a highlight rectangle is committed, overlapping text items are joined in reading order and saved as `selectedText` on the highlight annotation. Empty text still saves as a visual highlight. If there is no selectable PDF text, `PdfViewer` crops the highlighted canvas area for AI solve/explain actions, which helps scanned books and image-only pages. If the highlight overlaps user pen strokes, the annotation is marked as handwriting-sourced, but the app does not OCR handwriting into editable text yet.
 
 ## IELTS OS Workspace
 
@@ -51,7 +51,7 @@ Most interactions update React state optimistically, then persist to IndexedDB. 
 
 ## AI Study Coach
 
-`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls Ollama first when `AI_PROVIDER=ollama` or `OLLAMA_MODEL` / `OLLAMA_BASE_URL` is configured. It supports local Ollama and Ollama cloud at `https://ollama.com/api`, uses `/api/chat` with `stream: false` and `format: "json"`, then can fall back to Gemini or OpenAI when those providers are configured. The browser sends selected PDF text and an action mode; the route returns compact JSON for vocabulary, explanation, grammar, exercise solving, or sticky-note creation. Exercise solving works on detected PDF text; handwriting still needs a future OCR/vision pass.
+`src/app/api/ai/ielts/route.ts` is a server-only Next route that calls Ollama first when `AI_PROVIDER=ollama` or `OLLAMA_MODEL` / `OLLAMA_BASE_URL` is configured. It supports local Ollama and Ollama cloud at `https://ollama.com/api`, uses `/api/chat` with `stream: false` and `format: "json"`, then can fall back to Gemini or OpenAI when those providers are configured. The browser sends selected PDF text, or a cropped highlight image when no text layer exists, plus an action mode; the route returns compact JSON for vocabulary, explanation, grammar, exercise solving, or sticky-note creation. Image selections require a vision-capable provider/model, such as an Ollama model configured through `OLLAMA_VISION_MODEL`; handwriting still needs a future OCR/vision pass.
 
 The browser never receives provider API keys. Set `OLLAMA_MODEL`, `GEMINI_MODEL`, or `OPENAI_MODEL` to change models without code changes.
 

@@ -5,6 +5,7 @@ type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
 interface AiRequestBody {
   mode: AiMode;
   text: string;
+  imageDataUrl?: string;
   sourceBookTitle?: string;
   sourcePage?: number;
 }
@@ -106,7 +107,23 @@ function fallbackJson(text: string, mode: AiMode) {
   };
 }
 
-function buildPrompt(body: AiRequestBody, text: string) {
+function extractImagePayload(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/^data:(image\/(?:png|jpe?g|webp));base64,([\s\S]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    mimeType: match[1].toLowerCase(),
+    data: match[2].replace(/\s/g, "")
+  };
+}
+
+function buildPrompt(body: AiRequestBody, text: string, hasImage: boolean) {
   const source = [body.sourceBookTitle, body.sourcePage ? `page ${body.sourcePage}` : ""]
     .filter(Boolean)
     .join(", ");
@@ -117,12 +134,14 @@ title, summary, ipa, partOfSpeech, meaning, example, grammar, vietnamese, sugges
 
 Mode: ${body.mode} (${modeLabels[body.mode]})
 Source: ${source || "unknown"}
+Image selection attached: ${hasImage ? "yes" : "no"}
 Selected text:
-${text}
+${text || "[No selectable PDF text. Read the attached image selection first.]"}
 
 Rules:
 - Explain for IELTS learners, not generic English learners.
 - Keep output concise and useful for a PDF margin note.
+- If an image selection is attached, OCR/read only the highlighted crop first, then answer from that crop.
 - If mode is vocab, focus on IPA pronunciation, part of speech, word/phrase meaning, Vietnamese meaning, collocation, IELTS usage, and one natural example.
 - If mode is grammar, identify the grammar pattern and why it matters.
 - If mode is solve, solve the selected exercise text. Put the answer first.
@@ -171,7 +190,7 @@ function ollamaEndpoint(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
-async function callOllama(prompt: string) {
+async function callOllama(prompt: string, image?: { mimeType: string; data: string } | null) {
   const provider = process.env.AI_PROVIDER?.toLowerCase();
   const hasOllamaConfig = Boolean(process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || provider === "ollama");
   if (provider && provider !== "auto" && provider !== "ollama") {
@@ -181,7 +200,7 @@ async function callOllama(prompt: string) {
     return null;
   }
 
-  const model = process.env.OLLAMA_MODEL ?? "llama3.2";
+  const model = image ? process.env.OLLAMA_VISION_MODEL ?? process.env.OLLAMA_MODEL ?? "llava" : process.env.OLLAMA_MODEL ?? "llama3.2";
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
@@ -199,7 +218,8 @@ async function callOllama(prompt: string) {
         messages: [
           {
             role: "user",
-            content: prompt
+            content: prompt,
+            ...(image ? { images: [image.data] } : {})
           }
         ],
         format: "json",
@@ -229,13 +249,16 @@ async function callOllama(prompt: string) {
       payload && typeof payload === "object" && "error" in payload
         ? JSON.stringify(payload.error)
         : "Ollama request failed.";
-    return NextResponse.json({ error: message, provider: "ollama" }, { status: response.status });
+    const imageHint = image
+      ? " Image selections need a vision-capable Ollama model. Set OLLAMA_VISION_MODEL to one, or select real PDF text."
+      : "";
+    return NextResponse.json({ error: `${message}${imageHint}`, provider: "ollama" }, { status: response.status });
   }
 
   return extractOllamaOutputText(payload);
 }
 
-async function callGemini(prompt: string) {
+async function callGemini(prompt: string, image?: { mimeType: string; data: string } | null) {
   const provider = process.env.AI_PROVIDER?.toLowerCase();
   if (provider && provider !== "auto" && provider !== "gemini") {
     return null;
@@ -247,6 +270,16 @@ async function callGemini(prompt: string) {
   }
 
   const model = process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const parts: unknown[] = [{ text: prompt }];
+  if (image) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.data
+      }
+    });
+  }
+
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -258,7 +291,7 @@ async function callGemini(prompt: string) {
         contents: [
           {
             role: "user",
-            parts: [{ text: prompt }]
+            parts
           }
         ],
         generationConfig: {
@@ -325,29 +358,32 @@ export async function POST(request: Request) {
   }
 
   const text = body.text?.trim();
-  if (!text) {
-    return NextResponse.json({ error: "Text is required." }, { status: 400 });
-  }
+  const image = extractImagePayload(body.imageDataUrl);
 
   if (!isAiMode(body.mode)) {
     return NextResponse.json({ error: "Invalid AI mode." }, { status: 400 });
   }
 
-  const prompt = buildPrompt(body, text);
-  const ollamaResult = await callOllama(prompt);
+  if (!text && !image) {
+    return NextResponse.json({ error: "Text or image selection is required." }, { status: 400 });
+  }
+
+  const fallbackText = text || "Selected image";
+  const prompt = buildPrompt(body, text, Boolean(image));
+  const ollamaResult = await callOllama(prompt, image);
   if (ollamaResult instanceof NextResponse) {
     return ollamaResult;
   }
   if (typeof ollamaResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(ollamaResult, text, body.mode));
+    return NextResponse.json(parseJsonOrFallback(ollamaResult, fallbackText, body.mode));
   }
 
-  const geminiResult = await callGemini(prompt);
+  const geminiResult = await callGemini(prompt, image);
   if (geminiResult instanceof NextResponse) {
     return geminiResult;
   }
   if (typeof geminiResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(geminiResult, text, body.mode));
+    return NextResponse.json(parseJsonOrFallback(geminiResult, fallbackText, body.mode));
   }
 
   const openAiResult = await callOpenAi(prompt);
@@ -355,7 +391,7 @@ export async function POST(request: Request) {
     return openAiResult;
   }
   if (typeof openAiResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(openAiResult, text, body.mode));
+    return NextResponse.json(parseJsonOrFallback(openAiResult, fallbackText, body.mode));
   }
 
   return NextResponse.json(

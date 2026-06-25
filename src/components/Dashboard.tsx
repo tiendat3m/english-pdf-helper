@@ -55,7 +55,9 @@ import { v4 as uuid } from "uuid";
 type VocabularyDraft = Omit<
   VocabularyRecord,
   "id" | "ipa" | "partOfSpeech" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
-> | null;
+> & {
+  selectedImageDataUrl?: string;
+};
 
 type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
 
@@ -91,7 +93,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
-  const [aiSelection, setAiSelection] = useState<VocabularyDraft>(null);
+  const [aiSelection, setAiSelection] = useState<VocabularyDraft | null>(null);
   const [aiMode, setAiMode] = useState<AiMode>("vocab");
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -427,7 +429,7 @@ export default function Dashboard() {
     setData((current) => ({ ...current, bookmarks: [...current.bookmarks, bookmark] }));
   }
 
-  async function analyzeSelection(selection: NonNullable<VocabularyDraft>, mode: AiMode) {
+  async function analyzeSelection(selection: VocabularyDraft, mode: AiMode) {
     setAiMode(mode);
     setAiError(null);
     setIsAiLoading(true);
@@ -438,7 +440,8 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode,
-          text: selection.word,
+          text: selection.selectedImageDataUrl && selection.word === "Highlighted passage" ? "" : selection.word,
+          imageDataUrl: selection.selectedImageDataUrl,
           sourceBookTitle: selection.sourceBookTitle,
           sourcePage: selection.sourcePage
         })
@@ -488,8 +491,10 @@ export default function Dashboard() {
     if (!aiSelection) {
       return;
     }
+    const selectionRecord = { ...aiSelection };
+    delete selectionRecord.selectedImageDataUrl;
     const record: VocabularyRecord = {
-      ...aiSelection,
+      ...selectionRecord,
       id: uuid(),
       ipa: vocabularyMeta.ipa || aiResult?.ipa || "",
       partOfSpeech: vocabularyMeta.partOfSpeech || aiResult?.partOfSpeech || "",
