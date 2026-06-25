@@ -62,24 +62,40 @@ function distanceToStroke(point: Point, stroke: Point[]) {
   );
 }
 
-const PEN_CURSOR =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M5 23l4-1 13-13-3-3L6 19l-1 4z' fill='%231f2933' stroke='white' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M17 4l3 3' stroke='%23f8fafc' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E\") 5 23, crosshair";
-
-const HIGHLIGHTER_CURSOR =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 30 30'%3E%3Cpath d='M6 22l5 3 13-13-5-5L6 20v2z' fill='%23facc15' stroke='%231f2933' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M5 24h9' stroke='%23facc15' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E\") 5 24, crosshair";
-
 const ERASER_CURSOR =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M7 17l8-8a3 3 0 014 0l3 3a3 3 0 010 4l-5 5H9l-2-2a1.4 1.4 0 010-2z' fill='%23f9a8d4' stroke='%231f2933' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M10 14l6 6' stroke='white' stroke-width='1.5'/%3E%3C/svg%3E\") 9 20, cell";
 
 const NOTE_CURSOR =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M6 5h14l3 3v15H6V5z' fill='%23fde68a' stroke='%231f2933' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M20 5v4h4M14 11v7M10.5 14.5h7' stroke='%231f2933' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E\") 14 14, copy";
 
-function cursorForTool(tool: ToolMode) {
+function svgCursor(svg: string, x: number, y: number, fallback: string) {
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, ${fallback}`;
+}
+
+function penCursor(color: string) {
+  return svgCursor(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M5 23l4-1 13-13-3-3L6 19l-1 4z" fill="${color}" stroke="white" stroke-width="1.6" stroke-linejoin="round"/><path d="M17 4l3 3" stroke="#f8fafc" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+    5,
+    23,
+    "crosshair"
+  );
+}
+
+function highlighterCursor(color: string) {
+  return svgCursor(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><path d="M6 22l5 3 13-13-5-5L6 20v2z" fill="${color}" stroke="#1f2933" stroke-width="1.5" stroke-linejoin="round"/><path d="M5 24h9" stroke="${color}" stroke-width="4" stroke-linecap="round"/></svg>`,
+    5,
+    24,
+    "crosshair"
+  );
+}
+
+function cursorForTool(tool: ToolMode, penColor: StrokeColor, highlighterColor: HighlightColor) {
   switch (tool) {
     case "pen":
-      return PEN_CURSOR;
+      return penCursor(PEN_COLORS[penColor]);
     case "highlighter":
-      return HIGHLIGHTER_CURSOR;
+      return highlighterCursor(HIGHLIGHT_COLORS[highlighterColor]);
     case "eraser":
       return ERASER_CURSOR;
     case "note":
@@ -638,7 +654,7 @@ export default function AnnotationLayer({
         touchAction: tool === "pan" ? "auto" : "none",
         userSelect: tool === "pan" ? "auto" : "none",
         WebkitUserSelect: tool === "pan" ? "auto" : "none",
-        cursor: cursorForTool(tool)
+        cursor: cursorForTool(tool, penColor, highlighterColor)
       }}
     >
       <Stage

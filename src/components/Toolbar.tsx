@@ -76,6 +76,9 @@ export default function Toolbar({
   onZoomOut,
   onFitWidth
 }: ToolbarProps) {
+  const showingPenColors = tool !== "highlighter";
+  const activeColorLabel = showingPenColors ? "Pen colors" : "Highlighter colors";
+
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white/90 p-2 shadow-tool backdrop-blur dark:border-stone-700 dark:bg-stone-900/90">
       <div className="flex items-center gap-1">
@@ -120,34 +123,32 @@ export default function Toolbar({
 
       <div className="mx-1 h-8 w-px bg-stone-200 dark:bg-stone-700" />
 
-      <div className="flex items-center gap-1" aria-label="Pen colors">
-        {(Object.keys(PEN_COLORS) as StrokeColor[]).map((color) => (
-          <button
-            key={color}
-            type="button"
-            title={`Pen ${color}`}
-            onClick={() => onPenColorChange(color)}
-            className={`h-7 w-7 rounded-full border-2 transition ${
-              penColor === color ? "border-ink dark:border-paper" : "border-transparent"
-            }`}
-            style={{ backgroundColor: PEN_COLORS[color] }}
-          />
-        ))}
-      </div>
-
-      <div className="flex items-center gap-1" aria-label="Highlighter colors">
-        {(Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((color) => (
-          <button
-            key={color}
-            type="button"
-            title={`Highlight ${color}`}
-            onClick={() => onHighlighterColorChange(color)}
-            className={`h-7 w-7 rounded-full border-2 transition ${
-              highlighterColor === color ? "border-ink dark:border-paper" : "border-transparent"
-            }`}
-            style={{ backgroundColor: HIGHLIGHT_COLORS[color] }}
-          />
-        ))}
+      <div className="flex items-center gap-1" aria-label={activeColorLabel}>
+        {showingPenColors
+          ? (Object.keys(PEN_COLORS) as StrokeColor[]).map((color) => (
+              <button
+                key={color}
+                type="button"
+                title={`Pen ${color}`}
+                onClick={() => onPenColorChange(color)}
+                className={`h-7 w-7 rounded-full border-2 transition ${
+                  penColor === color ? "border-ink dark:border-paper" : "border-transparent"
+                }`}
+                style={{ backgroundColor: PEN_COLORS[color] }}
+              />
+            ))
+          : (Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((color) => (
+              <button
+                key={color}
+                type="button"
+                title={`Highlight ${color}`}
+                onClick={() => onHighlighterColorChange(color)}
+                className={`h-7 w-7 rounded-full border-2 transition ${
+                  highlighterColor === color ? "border-ink dark:border-paper" : "border-transparent"
+                }`}
+                style={{ backgroundColor: HIGHLIGHT_COLORS[color] }}
+              />
+            ))}
       </div>
 
       <label className="flex items-center gap-2 rounded-md bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-600 dark:bg-stone-800 dark:text-stone-200">
