@@ -102,6 +102,9 @@ function fallbackJson(text: string, mode: AiMode) {
     meaning: "",
     synonyms: "",
     antonyms: "",
+    usage: "",
+    collocations: "",
+    commonMistake: "",
     example: "",
     grammar: "",
     vietnamese: "",
@@ -132,7 +135,7 @@ function buildPrompt(body: AiRequestBody, text: string, hasImage: boolean) {
 
   return `You are an IELTS Band 8 study coach.
 Return only valid compact JSON with these keys:
-title, summary, ipa, partOfSpeech, meaning, synonyms, antonyms, example, grammar, vietnamese, suggestedNote.
+title, summary, ipa, partOfSpeech, meaning, synonyms, antonyms, usage, collocations, commonMistake, example, grammar, vietnamese, suggestedNote.
 
 Mode: ${body.mode} (${modeLabels[body.mode]})
 Source: ${source || "unknown"}
@@ -145,6 +148,7 @@ Rules:
 - Keep output concise and useful for a PDF margin note.
 - If an image selection is attached, OCR/read only the highlighted crop first, then answer from that crop.
 - If mode is vocab, focus on IPA pronunciation, part of speech, word/phrase meaning, Vietnamese meaning, synonyms, antonyms, collocation, IELTS usage, and one natural example.
+- If mode is explain, make it a mini lesson: plain meaning, why it is used in this context, Vietnamese explanation, IELTS usage, collocations, common mistake or contrast, and one natural example.
 - If mode is grammar, identify the grammar pattern and why it matters.
 - If mode is solve, solve the selected exercise text. Put the answer first.
 - For mode solve, title should be "Answer: ..." and summary should include the completed sentence or answer list.
@@ -154,6 +158,9 @@ Rules:
 - partOfSpeech should be short, e.g. noun, verb, adjective, adverb, phrase, phrasal verb, collocation.
 - synonyms should be 2-4 close IELTS-useful alternatives separated by commas; use an empty string if none fit.
 - antonyms should be 1-3 useful opposites separated by commas; use an empty string if none fit.
+- usage should explain how to use the word, phrase, or grammar point in IELTS writing/speaking.
+- collocations should be 2-5 natural collocations or fixed phrases separated by commas.
+- commonMistake should warn about a likely learner mistake, false friend, register problem, or wrong collocation.
 - vietnamese should briefly explain in Vietnamese.
 - suggestedNote should be ready to save as a sticky note.`;
 }

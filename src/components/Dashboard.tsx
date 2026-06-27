@@ -79,6 +79,9 @@ interface AiResult {
   meaning: string;
   synonyms: string;
   antonyms: string;
+  usage: string;
+  collocations: string;
+  commonMistake: string;
   example: string;
   grammar: string;
   vietnamese: string;
@@ -480,6 +483,9 @@ export default function Dashboard() {
         meaning: payload.meaning || "",
         synonyms: payload.synonyms || "",
         antonyms: payload.antonyms || "",
+        usage: payload.usage || "",
+        collocations: payload.collocations || "",
+        commonMistake: payload.commonMistake || "",
         example: payload.example || "",
         grammar: payload.grammar || "",
         vietnamese: payload.vietnamese || "",
@@ -547,6 +553,9 @@ export default function Dashboard() {
     const text = [
       aiResult?.title || "AI note",
       aiResult?.suggestedNote || aiResult?.summary || aiSelection.word,
+      aiResult?.usage ? `Usage: ${aiResult.usage}` : "",
+      aiResult?.collocations ? `Collocations: ${aiResult.collocations}` : "",
+      aiResult?.commonMistake ? `Common mistake: ${aiResult.commonMistake}` : "",
       aiResult?.vietnamese ? `VN: ${aiResult.vietnamese}` : ""
     ]
       .filter(Boolean)
@@ -1056,6 +1065,24 @@ export default function Dashboard() {
                     <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
                       <div className="text-xs font-bold uppercase tracking-wide text-sage">Antonyms</div>
                       <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.antonyms}</p>
+                    </div>
+                  )}
+                  {aiResult.usage && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">IELTS usage</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.usage}</p>
+                    </div>
+                  )}
+                  {aiResult.collocations && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Collocations</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.collocations}</p>
+                    </div>
+                  )}
+                  {aiResult.commonMistake && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Common mistake</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.commonMistake}</p>
                     </div>
                   )}
                   {aiResult.grammar && (
