@@ -129,6 +129,8 @@ export interface VocabularyRecord {
   partOfSpeech?: string;
   meaning: string;
   vietnameseMeaning?: string;
+  synonyms?: string;
+  antonyms?: string;
   example: string;
   sourceBookId: string;
   sourceBookTitle: string;

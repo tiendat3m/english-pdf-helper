@@ -54,7 +54,17 @@ import { v4 as uuid } from "uuid";
 
 type VocabularyDraft = Omit<
   VocabularyRecord,
-  "id" | "ipa" | "partOfSpeech" | "meaning" | "vietnameseMeaning" | "example" | "status" | "createdAt" | "updatedAt"
+  | "id"
+  | "ipa"
+  | "partOfSpeech"
+  | "meaning"
+  | "vietnameseMeaning"
+  | "synonyms"
+  | "antonyms"
+  | "example"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
 > & {
   selectedImageDataUrl?: string;
 };
@@ -67,6 +77,8 @@ interface AiResult {
   ipa: string;
   partOfSpeech: string;
   meaning: string;
+  synonyms: string;
+  antonyms: string;
   example: string;
   grammar: string;
   vietnamese: string;
@@ -98,7 +110,15 @@ export default function Dashboard() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [vocabularyMeta, setVocabularyMeta] = useState({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
+  const [vocabularyMeta, setVocabularyMeta] = useState({
+    ipa: "",
+    partOfSpeech: "",
+    meaning: "",
+    vietnameseMeaning: "",
+    synonyms: "",
+    antonyms: "",
+    example: ""
+  });
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
@@ -458,6 +478,8 @@ export default function Dashboard() {
         ipa: payload.ipa || "",
         partOfSpeech: payload.partOfSpeech || "",
         meaning: payload.meaning || "",
+        synonyms: payload.synonyms || "",
+        antonyms: payload.antonyms || "",
         example: payload.example || "",
         grammar: payload.grammar || "",
         vietnamese: payload.vietnamese || "",
@@ -470,6 +492,8 @@ export default function Dashboard() {
         partOfSpeech: nextResult.partOfSpeech,
         meaning: nextResult.meaning || nextResult.summary,
         vietnameseMeaning: nextResult.vietnamese,
+        synonyms: nextResult.synonyms,
+        antonyms: nextResult.antonyms,
         example: nextResult.example
       });
     } catch (error) {
@@ -500,6 +524,8 @@ export default function Dashboard() {
       partOfSpeech: vocabularyMeta.partOfSpeech || aiResult?.partOfSpeech || "",
       meaning: vocabularyMeta.meaning || aiResult?.meaning || aiResult?.summary || "",
       vietnameseMeaning: vocabularyMeta.vietnameseMeaning || aiResult?.vietnamese || "",
+      synonyms: vocabularyMeta.synonyms || aiResult?.synonyms || "",
+      antonyms: vocabularyMeta.antonyms || aiResult?.antonyms || "",
       example: vocabularyMeta.example || aiResult?.example || "",
       status: "new",
       createdAt: nowIso(),
@@ -510,7 +536,7 @@ export default function Dashboard() {
     setAiSelection(null);
     setAiResult(null);
     setAiError(null);
-    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
+    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
   }
 
   function handleSaveAiNote() {
@@ -890,7 +916,7 @@ export default function Dashboard() {
                   setAiMode(mode);
                   setAiResult(null);
                   setAiError(null);
-                  setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", example: "" });
+                  setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
                   if (mode === "explain" || mode === "solve") {
                     void analyzeSelection(selection, mode);
                   }
@@ -1020,6 +1046,18 @@ export default function Dashboard() {
                       <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.meaning}</p>
                     </div>
                   )}
+                  {aiResult.synonyms && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Synonyms</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.synonyms}</p>
+                    </div>
+                  )}
+                  {aiResult.antonyms && (
+                    <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
+                      <div className="text-xs font-bold uppercase tracking-wide text-sage">Antonyms</div>
+                      <p className="mt-1 text-stone-700 dark:text-stone-200">{aiResult.antonyms}</p>
+                    </div>
+                  )}
                   {aiResult.grammar && (
                     <div className="rounded-md bg-white p-3 text-sm dark:bg-stone-950">
                       <div className="text-xs font-bold uppercase tracking-wide text-sage">Grammar</div>
@@ -1079,6 +1117,26 @@ export default function Dashboard() {
                   placeholder="Nghĩa tiếng Việt"
                 />
               </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Synonyms
+                  <input
+                    value={vocabularyMeta.synonyms}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, synonyms: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                    placeholder="large, significant, considerable"
+                  />
+                </label>
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Antonyms
+                  <input
+                    value={vocabularyMeta.antonyms}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, antonyms: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                    placeholder="small, minor, insignificant"
+                  />
+                </label>
+              </div>
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
                 Vocabulary example
                 <textarea
