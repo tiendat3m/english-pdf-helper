@@ -612,9 +612,6 @@ export default function Dashboard() {
 
   function switchTab(tab: MainTab) {
     setEditor((current) => ({ ...current, activeTab: tab }));
-    if (tab !== "learn") {
-      setIsWorkspaceOpen(false);
-    }
   }
 
   const stats = [
