@@ -92,6 +92,8 @@ type HistoryAction =
   | { type: "add"; annotations: Annotation[] }
   | { type: "delete"; annotations: Annotation[] };
 
+const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
+
 const PdfViewer = dynamic(() => import("./PdfViewer"), {
   ssr: false,
   loading: () => (
@@ -148,7 +150,7 @@ export default function Dashboard() {
       annotations: data.annotations.filter((annotation) => activeBookIds.has(annotation.bookId)),
       bookmarks: data.bookmarks.filter((bookmark) => activeBookIds.has(bookmark.bookId)),
       pageStatuses: data.pageStatuses.filter((status) => activeBookIds.has(status.bookId)),
-      vocabulary: data.vocabulary.filter((item) => activeBookIds.has(item.sourceBookId))
+      vocabulary: data.vocabulary.filter((item) => activeBookIds.has(item.sourceBookId) || item.sourceBookId === MANUAL_VOCABULARY_SOURCE_ID)
     }),
     [activeBookIds, activeBooks, data]
   );
@@ -610,6 +612,26 @@ export default function Dashboard() {
     setData((current) => ({ ...current, vocabulary: current.vocabulary.filter((item) => item.id !== id) }));
   }
 
+  function resetAiDraft() {
+    setAiResult(null);
+    setAiError(null);
+    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
+  }
+
+  function handleManualVocabularyAdd(word: string) {
+    const selection: VocabularyDraft = {
+      word,
+      sourceBookId: activeBook?.id ?? MANUAL_VOCABULARY_SOURCE_ID,
+      sourceBookTitle: activeBook?.title ?? "Manual vocabulary",
+      sourcePage: activeBook ? editor.currentPage : 0
+    };
+
+    setAiSelection(selection);
+    setAiMode("explain");
+    resetAiDraft();
+    void analyzeSelection(selection, "explain");
+  }
+
   function switchTab(tab: MainTab) {
     setEditor((current) => ({ ...current, activeTab: tab }));
   }
@@ -955,6 +977,7 @@ export default function Dashboard() {
           onSortChange={setVocabSort}
           onStatusChange={handleVocabularyStatus}
           onDelete={handleVocabularyDelete}
+          onAddWord={handleManualVocabularyAdd}
         />
       )}
 

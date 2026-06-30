@@ -1,6 +1,7 @@
 "use client";
 
-import { Search, Trash2, Volume2 } from "lucide-react";
+import { Plus, Search, Sparkles, Trash2, Volume2 } from "lucide-react";
+import { useState } from "react";
 import type { VocabularyRecord, VocabStatus } from "@/lib/types";
 
 interface VocabularyPanelProps {
@@ -13,6 +14,7 @@ interface VocabularyPanelProps {
   onSortChange: (value: "newest" | "word" | "status") => void;
   onStatusChange: (record: VocabularyRecord, status: VocabStatus) => void;
   onDelete: (id: string) => void;
+  onAddWord: (word: string) => void;
 }
 
 const statuses: Array<VocabStatus | "all"> = ["all", "new", "learning", "mastered"];
@@ -44,8 +46,11 @@ export default function VocabularyPanel({
   onFilterChange,
   onSortChange,
   onStatusChange,
-  onDelete
+  onDelete,
+  onAddWord
 }: VocabularyPanelProps) {
+  const [isAddingWord, setIsAddingWord] = useState(false);
+  const [newWord, setNewWord] = useState("");
   const visible = vocabulary
     .filter((item) => {
       const haystack =
@@ -70,7 +75,45 @@ export default function VocabularyPanel({
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Anki-inspired review</p>
             <h1 className="mt-2 text-3xl font-bold text-stone-950 dark:text-stone-50">Vocabulary</h1>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isAddingWord && (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const word = newWord.trim().replace(/\s+/g, " ");
+                  if (!word) {
+                    return;
+                  }
+                  onAddWord(word);
+                  setNewWord("");
+                  setIsAddingWord(false);
+                }}
+                className="flex items-center gap-2 rounded-lg border border-sage/40 bg-white px-2 py-1.5 shadow-sm dark:border-sage/60 dark:bg-stone-900"
+              >
+                <input
+                  autoFocus
+                  value={newWord}
+                  onChange={(event) => setNewWord(event.target.value)}
+                  placeholder="New word or phrase"
+                  className="w-44 bg-transparent px-1 text-sm outline-none"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1 rounded-md bg-ink px-3 py-1.5 text-xs font-bold text-white dark:bg-paper dark:text-stone-950"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Explain
+                </button>
+              </form>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsAddingWord((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+            >
+              <Plus className="h-4 w-4" />
+              Add word
+            </button>
             <label className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <Search className="h-4 w-4" />
               <input
@@ -150,7 +193,7 @@ export default function VocabularyPanel({
                   <div className="text-stone-600 dark:text-stone-300">{item.example || "Add your own sentence"}</div>
                   <div className="text-xs text-stone-500 dark:text-stone-400">
                     <div className="font-semibold">{item.sourceBookTitle}</div>
-                    <div>Page {item.sourcePage}</div>
+                    <div>{item.sourcePage > 0 ? `Page ${item.sourcePage}` : "Manual"}</div>
                   </div>
                   <select
                     value={item.status}
