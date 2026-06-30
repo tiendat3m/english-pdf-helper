@@ -50,8 +50,23 @@ interface IeltsPdfNotesDB extends DBSchema {
 
 const DB_NAME = "ielts-pdf-notes";
 const DB_VERSION = 1;
+const BACKUP_VERSION = 1;
 
 let dbPromise: Promise<IDBPDatabase<IeltsPdfNotesDB>> | null = null;
+
+type BackupBookRecord = Omit<BookRecord, "blob"> & {
+  blobDataUrl: string;
+  blobType: string;
+};
+
+interface AppDataBackup {
+  app: "ielts-pdf-notes";
+  version: number;
+  exportedAt: string;
+  data: Omit<AppData, "books"> & {
+    books: BackupBookRecord[];
+  };
+}
 
 function getDb() {
   if (!dbPromise) {
@@ -105,6 +120,103 @@ export async function loadAppData(): Promise<AppData> {
     vocabulary: vocabulary.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activities: activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 80)
   };
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read PDF blob."));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function dataUrlToBlob(dataUrl: string) {
+  const response = await fetch(dataUrl);
+  if (!response.ok) {
+    throw new Error("Could not restore a PDF from backup.");
+  }
+  return response.blob();
+}
+
+function isAppDataBackup(value: unknown): value is AppDataBackup {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<AppDataBackup>;
+  return candidate.app === "ielts-pdf-notes" && typeof candidate.version === "number" && Boolean(candidate.data);
+}
+
+export async function exportAppDataBackup() {
+  const current = await loadAppData();
+  const books = await Promise.all(
+    current.books.map(async (book) => {
+      const { blob, ...metadata } = book;
+      return {
+        ...metadata,
+        blobDataUrl: await blobToDataUrl(blob),
+        blobType: blob.type || "application/pdf"
+      };
+    })
+  );
+
+  const backup: AppDataBackup = {
+    app: "ielts-pdf-notes",
+    version: BACKUP_VERSION,
+    exportedAt: nowIso(),
+    data: {
+      ...current,
+      books
+    }
+  };
+
+  return new Blob([JSON.stringify(backup)], { type: "application/json" });
+}
+
+export async function importAppDataBackup(file: File) {
+  const backup = JSON.parse(await file.text()) as unknown;
+  if (!isAppDataBackup(backup)) {
+    throw new Error("This backup file is not an IELTS PDF Notes backup.");
+  }
+
+  const db = await getDb();
+  const restoredBooks = await Promise.all(
+    backup.data.books.map(async (book) => {
+      const metadata: BookRecord = {
+        id: book.id,
+        title: book.title,
+        fileName: book.fileName,
+        size: book.size,
+        createdAt: book.createdAt,
+        updatedAt: book.updatedAt,
+        lastOpenedAt: book.lastOpenedAt,
+        lastPage: book.lastPage,
+        totalPages: book.totalPages,
+        zoom: book.zoom,
+        progress: book.progress,
+        deletedAt: book.deletedAt,
+        blob: await dataUrlToBlob(book.blobDataUrl)
+      };
+      return metadata;
+    })
+  );
+
+  const tx = db.transaction(["books", "annotations", "bookmarks", "pageStatuses", "vocabulary", "activities"], "readwrite");
+  await Promise.all([
+    ...restoredBooks.map((book) => tx.objectStore("books").put(book)),
+    ...backup.data.annotations.map((annotation) => tx.objectStore("annotations").put(annotation)),
+    ...backup.data.bookmarks.map((bookmark) => tx.objectStore("bookmarks").put(bookmark)),
+    ...backup.data.pageStatuses.map((status) => tx.objectStore("pageStatuses").put(status)),
+    ...backup.data.vocabulary.map((record) => tx.objectStore("vocabulary").put(record)),
+    ...backup.data.activities.map((activity) => tx.objectStore("activities").put(activity)),
+    tx.done
+  ]);
+
+  await addActivity({
+    type: "book-restored",
+    label: `Imported backup from ${backup.exportedAt.slice(0, 10)}`
+  });
 }
 
 export async function importBook(file: File) {

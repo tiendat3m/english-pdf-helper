@@ -1,11 +1,12 @@
 "use client";
 
 import "@/lib/browserPolyfills";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   BookOpen,
   Brain,
+  Download,
   Flame,
   GraduationCap,
   PanelLeftClose,
@@ -14,7 +15,8 @@ import {
   Play,
   Sparkles,
   Star,
-  TrendingUp
+  TrendingUp,
+  Upload
 } from "lucide-react";
 import PdfUploader from "./PdfUploader";
 import PdfSidebar from "./PdfSidebar";
@@ -26,7 +28,9 @@ import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib
 import {
   deleteAnnotation,
   deleteVocabulary,
+  exportAppDataBackup,
   importBook,
+  importAppDataBackup,
   loadAppData,
   permanentlyDeleteBooks,
   restoreBook,
@@ -104,6 +108,7 @@ const PdfViewer = dynamic(() => import("./PdfViewer"), {
 });
 
 export default function Dashboard() {
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -127,6 +132,7 @@ export default function Dashboard() {
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
 
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
@@ -612,6 +618,50 @@ export default function Dashboard() {
     setData((current) => ({ ...current, vocabulary: current.vocabulary.filter((item) => item.id !== id) }));
   }
 
+  async function handleExportBackup() {
+    setBackupStatus("Preparing backup...");
+    try {
+      const backupBlob = await exportAppDataBackup();
+      const url = URL.createObjectURL(backupBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ielts-pdf-notes-backup-${nowIso().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setBackupStatus("Backup exported.");
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Could not export backup.");
+    }
+  }
+
+  async function handleImportBackup(file: File) {
+    setBackupStatus("Importing backup...");
+    try {
+      await importAppDataBackup(file);
+      const next = await refreshData();
+      const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
+      if (nextActiveBook) {
+        setEditor((current) => ({
+          ...current,
+          activeTab: "learn",
+          activeBookId: nextActiveBook.id,
+          currentPage: nextActiveBook.lastPage || 1,
+          zoom: nextActiveBook.zoom || DEFAULT_ZOOM
+        }));
+        setIsWorkspaceOpen(true);
+      }
+      setBackupStatus("Backup imported.");
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Could not import backup.");
+    } finally {
+      if (backupInputRef.current) {
+        backupInputRef.current.value = "";
+      }
+    }
+  }
+
   function resetAiDraft() {
     setAiResult(null);
     setAiError(null);
@@ -702,22 +752,57 @@ export default function Dashboard() {
             {tabButton("progress", "Progress")}
           </nav>
 
-          <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-            {(["light", "warm", "dark"] as const).map((theme) => (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <button
-                key={theme}
                 type="button"
-                title={`Use ${theme} theme`}
-                onClick={() => setEditor((current) => ({ ...current, theme }))}
-                className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
-                  editor.theme === theme
-                    ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
-                    : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
-                }`}
+                title="Export local backup"
+                onClick={() => void handleExportBackup()}
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
               >
-                {theme}
+                <Download className="h-3.5 w-3.5" />
+                Export
               </button>
-            ))}
+              <button
+                type="button"
+                title="Import backup"
+                onClick={() => backupInputRef.current?.click()}
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import
+              </button>
+              <input
+                ref={backupInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    void handleImportBackup(file);
+                  }
+                }}
+              />
+            </div>
+            <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+              {(["light", "warm", "dark"] as const).map((theme) => (
+                <button
+                  key={theme}
+                  type="button"
+                  title={`Use ${theme} theme`}
+                  onClick={() => setEditor((current) => ({ ...current, theme }))}
+                  className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
+                    editor.theme === theme
+                      ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                      : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  {theme}
+                </button>
+              ))}
+            </div>
+            {backupStatus && <div className="w-full text-right text-xs font-semibold text-sage">{backupStatus}</div>}
           </div>
         </div>
       </header>
