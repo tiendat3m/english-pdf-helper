@@ -6,6 +6,8 @@ import dynamic from "next/dynamic";
 import {
   BookOpen,
   Brain,
+  CloudDownload,
+  CloudUpload,
   Download,
   Flame,
   GraduationCap,
@@ -26,6 +28,8 @@ import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
 import {
+  appDataBackupToBlob,
+  createAppDataBackup,
   deleteAnnotation,
   deleteVocabulary,
   exportAppDataBackup,
@@ -40,6 +44,7 @@ import {
   savePageStatus,
   saveVocabulary,
   softDeleteBook,
+  restoreAppDataBackup,
   touchBook
 } from "@/lib/db";
 import { initialEditorState, shortcutToTool } from "@/lib/editorStore";
@@ -97,6 +102,21 @@ type HistoryAction =
   | { type: "delete"; annotations: Annotation[] };
 
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
+const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
+
+interface SignedSyncUrlResponse {
+  signedUrl: string;
+  expiresIn: number;
+}
+
+async function getResponseMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { message?: string; error?: string };
+    return payload.message || payload.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 const PdfViewer = dynamic(() => import("./PdfViewer"), {
   ssr: false,
@@ -133,10 +153,31 @@ export default function Dashboard() {
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [syncCode, setSyncCode] = useState("");
+  const [isSyncCodeLoaded, setIsSyncCodeLoaded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    setSyncCode(localStorage.getItem(SYNC_CODE_STORAGE_KEY) ?? "");
+    setIsSyncCodeLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isSyncCodeLoaded) {
+      return;
+    }
+
+    const nextCode = syncCode.trim();
+    if (nextCode) {
+      localStorage.setItem(SYNC_CODE_STORAGE_KEY, nextCode);
+    } else {
+      localStorage.removeItem(SYNC_CODE_STORAGE_KEY);
+    }
+  }, [isSyncCodeLoaded, syncCode]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", editor.theme === "dark");
@@ -662,6 +703,83 @@ export default function Dashboard() {
     }
   }
 
+  async function requestSignedSyncUrl(endpoint: "/api/sync/upload-url" | "/api/sync/download-url") {
+    const code = syncCode.trim();
+    if (!code) {
+      throw new Error("Enter a sync code first.");
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ syncCode: code })
+    });
+
+    if (!response.ok) {
+      throw new Error(await getResponseMessage(response, "Could not start cloud sync."));
+    }
+
+    return (await response.json()) as SignedSyncUrlResponse;
+  }
+
+  async function handleCloudPush() {
+    setIsSyncing(true);
+    setBackupStatus("Pushing cloud backup...");
+    try {
+      const backupBlob = appDataBackupToBlob(await createAppDataBackup());
+      const { signedUrl } = await requestSignedSyncUrl("/api/sync/upload-url");
+      const uploadBody = new FormData();
+      uploadBody.append("cacheControl", "3600");
+      uploadBody.append("", backupBlob, "backup.json");
+      const uploadResponse = await fetch(signedUrl, {
+        method: "PUT",
+        headers: { "x-upsert": "true" },
+        body: uploadBody
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(await getResponseMessage(uploadResponse, "Could not upload cloud backup."));
+      }
+
+      setBackupStatus("Cloud backup pushed.");
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Could not push cloud backup.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function handleCloudPull() {
+    setIsSyncing(true);
+    setBackupStatus("Pulling cloud backup...");
+    try {
+      const { signedUrl } = await requestSignedSyncUrl("/api/sync/download-url");
+      const downloadResponse = await fetch(signedUrl, { cache: "no-store" });
+      if (!downloadResponse.ok) {
+        throw new Error(await getResponseMessage(downloadResponse, "Could not download cloud backup."));
+      }
+
+      await restoreAppDataBackup(await downloadResponse.json(), { replace: true });
+      const next = await refreshData();
+      const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
+      if (nextActiveBook) {
+        setEditor((current) => ({
+          ...current,
+          activeTab: "learn",
+          activeBookId: nextActiveBook.id,
+          currentPage: nextActiveBook.lastPage || 1,
+          zoom: nextActiveBook.zoom || DEFAULT_ZOOM
+        }));
+        setIsWorkspaceOpen(true);
+      }
+      setBackupStatus("Cloud backup pulled.");
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Could not pull cloud backup.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   function resetAiDraft() {
     setAiResult(null);
     setAiError(null);
@@ -753,6 +871,35 @@ export default function Dashboard() {
           </nav>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+              <input
+                value={syncCode}
+                onChange={(event) => setSyncCode(event.target.value)}
+                placeholder="Sync code"
+                aria-label="Cloud sync code"
+                className="h-8 w-28 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-36"
+              />
+              <button
+                type="button"
+                title="Push this browser data to cloud"
+                disabled={isSyncing}
+                onClick={() => void handleCloudPush()}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+              >
+                <CloudUpload className="h-3.5 w-3.5" />
+                Push
+              </button>
+              <button
+                type="button"
+                title="Pull cloud data into this browser"
+                disabled={isSyncing}
+                onClick={() => void handleCloudPull()}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+              >
+                <CloudDownload className="h-3.5 w-3.5" />
+                Pull
+              </button>
+            </div>
             <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <button
                 type="button"

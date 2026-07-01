@@ -2,7 +2,7 @@
 
 ## Overview
 
-IELTS PDF Notes is a Next.js App Router application with a browser-only learning workspace. There is no backend. All durable user data lives in IndexedDB through `idb`.
+IELTS PDF Notes is a Next.js App Router application with a browser-first learning workspace. IndexedDB through `idb` remains the primary durable store. Optional server routes provide AI calls and signed Supabase Storage URLs without moving normal app state to a backend.
 
 ## Layers
 
@@ -48,6 +48,22 @@ The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. S
 ## Persistence Flow
 
 Most interactions update React state optimistically, then persist to IndexedDB. The original PDF Blob remains untouched. Reopening a book restores the last page and zoom from the book record.
+
+## Backup And Cross-Device Sync
+
+`src/lib/db.ts` serializes the complete IndexedDB state, including PDF blobs, into a versioned JSON backup. File export/import remains available for offline backup.
+
+Optional cloud sync stores that same snapshot in a private Supabase Storage bucket. The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function.
+
+Configure:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_SYNC_BUCKET=ielts-sync
+```
+
+The bucket is created as private on first use when the service role has Storage permissions. A sync code maps to `<sync-code>/backup.json`. Use a long, hard-to-guess code because this MVP does not have user accounts yet. `Push` overwrites the cloud snapshot; `Pull` replaces the current browser database with that snapshot.
 
 ## AI Study Coach
 

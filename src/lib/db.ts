@@ -59,7 +59,7 @@ type BackupBookRecord = Omit<BookRecord, "blob"> & {
   blobType: string;
 };
 
-interface AppDataBackup {
+export interface AppDataBackup {
   app: "ielts-pdf-notes";
   version: number;
   exportedAt: string;
@@ -67,6 +67,12 @@ interface AppDataBackup {
     books: BackupBookRecord[];
   };
 }
+
+interface RestoreBackupOptions {
+  replace?: boolean;
+}
+
+const BACKUP_STORE_NAMES = ["books", "annotations", "bookmarks", "pageStatuses", "vocabulary", "activities"] as const;
 
 function getDb() {
   if (!dbPromise) {
@@ -148,7 +154,7 @@ function isAppDataBackup(value: unknown): value is AppDataBackup {
   return candidate.app === "ielts-pdf-notes" && typeof candidate.version === "number" && Boolean(candidate.data);
 }
 
-export async function exportAppDataBackup() {
+export async function createAppDataBackup(): Promise<AppDataBackup> {
   const current = await loadAppData();
   const books = await Promise.all(
     current.books.map(async (book) => {
@@ -171,13 +177,20 @@ export async function exportAppDataBackup() {
     }
   };
 
+  return backup;
+}
+
+export function appDataBackupToBlob(backup: AppDataBackup) {
   return new Blob([JSON.stringify(backup)], { type: "application/json" });
 }
 
-export async function importAppDataBackup(file: File) {
-  const backup = JSON.parse(await file.text()) as unknown;
+export async function exportAppDataBackup() {
+  return appDataBackupToBlob(await createAppDataBackup());
+}
+
+export async function restoreAppDataBackup(backup: unknown, options: RestoreBackupOptions = {}) {
   if (!isAppDataBackup(backup)) {
-    throw new Error("This backup file is not an IELTS PDF Notes backup.");
+    throw new Error("This backup is not an IELTS PDF Notes backup.");
   }
 
   const db = await getDb();
@@ -202,8 +215,10 @@ export async function importAppDataBackup(file: File) {
     })
   );
 
-  const tx = db.transaction(["books", "annotations", "bookmarks", "pageStatuses", "vocabulary", "activities"], "readwrite");
+  const tx = db.transaction(BACKUP_STORE_NAMES, "readwrite");
+  const replaceOperations = options.replace ? BACKUP_STORE_NAMES.map((storeName) => tx.objectStore(storeName).clear()) : [];
   await Promise.all([
+    ...replaceOperations,
     ...restoredBooks.map((book) => tx.objectStore("books").put(book)),
     ...backup.data.annotations.map((annotation) => tx.objectStore("annotations").put(annotation)),
     ...backup.data.bookmarks.map((bookmark) => tx.objectStore("bookmarks").put(bookmark)),
@@ -217,6 +232,10 @@ export async function importAppDataBackup(file: File) {
     type: "book-restored",
     label: `Imported backup from ${backup.exportedAt.slice(0, 10)}`
   });
+}
+
+export async function importAppDataBackup(file: File) {
+  await restoreAppDataBackup(JSON.parse(await file.text()));
 }
 
 export async function importBook(file: File) {
