@@ -57,6 +57,13 @@ function getHeaders(config: SupabaseSyncConfig) {
   };
 }
 
+function fetchSupabase(input: string, init?: RequestInit) {
+  return fetch(input, {
+    ...init,
+    signal: AbortSignal.timeout(15_000)
+  });
+}
+
 async function readSupabaseError(response: Response) {
   const text = await response.text();
   if (!text) {
@@ -72,20 +79,20 @@ async function readSupabaseError(response: Response) {
 }
 
 export async function ensureSyncBucket(config: SupabaseSyncConfig) {
-  const existing = await fetch(`${config.url}/storage/v1/bucket/${encodeURIComponent(config.bucket)}`, {
+  const response = await fetchSupabase(`${config.url}/storage/v1/bucket`, {
     headers: getHeaders(config),
     cache: "no-store"
   });
 
-  if (existing.ok) {
-    return;
+  if (!response.ok) {
+    throw new Error(await readSupabaseError(response));
   }
 
-  if (existing.status !== 404) {
-    throw new Error(await readSupabaseError(existing));
-  }
+  const buckets = (await response.json()) as Array<{ id?: string; name?: string }>;
+  const exists = buckets.some((bucket) => bucket.id === config.bucket || bucket.name === config.bucket);
+  if (exists) return;
 
-  const created = await fetch(`${config.url}/storage/v1/bucket`, {
+  const created = await fetchSupabase(`${config.url}/storage/v1/bucket`, {
     method: "POST",
     headers: getHeaders(config),
     body: JSON.stringify({
@@ -102,7 +109,7 @@ export async function ensureSyncBucket(config: SupabaseSyncConfig) {
 
 export async function createSignedUploadUrl(config: SupabaseSyncConfig, objectPath: string) {
   await ensureSyncBucket(config);
-  const response = await fetch(
+  const response = await fetchSupabase(
     `${config.url}/storage/v1/object/upload/sign/${encodeURIComponent(config.bucket)}/${encodeObjectPath(objectPath)}`,
     {
       method: "POST",
@@ -129,7 +136,7 @@ export async function createSignedUploadUrl(config: SupabaseSyncConfig, objectPa
 
 export async function createSignedDownloadUrl(config: SupabaseSyncConfig, objectPath: string) {
   await ensureSyncBucket(config);
-  const response = await fetch(
+  const response = await fetchSupabase(
     `${config.url}/storage/v1/object/sign/${encodeURIComponent(config.bucket)}/${encodeObjectPath(objectPath)}`,
     {
       method: "POST",
