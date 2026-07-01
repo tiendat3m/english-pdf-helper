@@ -63,7 +63,9 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_SYNC_BUCKET=ielts-sync
 ```
 
-The bucket is created as private on first use when the service role has Storage permissions. A sync code maps to `<sync-code>/backup.json`. Use a long, hard-to-guess code because this MVP does not have user accounts yet. `Push` overwrites the cloud snapshot; `Pull` replaces the current browser database with that snapshot.
+The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<sync-code>/parts/` and committed by uploading `<sync-code>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier `<sync-code>/backup.json` format.
+
+Use a long, hard-to-guess sync code because this MVP does not have user accounts yet. `Push` overwrites the cloud snapshot; `Pull` replaces the current browser database with that snapshot.
 
 ## AI Study Coach
 

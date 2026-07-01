@@ -28,7 +28,6 @@ import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
 import {
-  appDataBackupToBlob,
   createAppDataBackup,
   deleteAnnotation,
   deleteVocabulary,
@@ -103,10 +102,33 @@ type HistoryAction =
 
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
+const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
+const MAX_CLOUD_SYNC_PARTS = 500;
 
-interface SignedSyncUrlResponse {
+interface CloudUploadUrlsResponse {
+  partUrls: string[];
+  manifestUrl: string;
+  expiresIn: number;
+}
+
+interface CloudDownloadIndexResponse {
+  kind: "chunked" | "legacy";
   signedUrl: string;
   expiresIn: number;
+}
+
+interface CloudDownloadPartsResponse {
+  kind: "parts";
+  partUrls: string[];
+  expiresIn: number;
+}
+
+interface CloudBackupManifest {
+  version: 1;
+  format: "chunked-json";
+  partCount: number;
+  byteLength: number;
+  createdAt: string;
 }
 
 async function getResponseMessage(response: Response, fallback: string) {
@@ -703,7 +725,10 @@ export default function Dashboard() {
     }
   }
 
-  async function requestSignedSyncUrl(endpoint: "/api/sync/upload-url" | "/api/sync/download-url") {
+  async function requestSignedSyncUrl<T>(
+    endpoint: "/api/sync/upload-url" | "/api/sync/download-url",
+    options: { partCount?: number } = {}
+  ) {
     const code = syncCode.trim();
     if (!code) {
       throw new Error("Enter a sync code first.");
@@ -712,34 +737,68 @@ export default function Dashboard() {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ syncCode: code })
+      body: JSON.stringify({ syncCode: code, ...options })
     });
 
     if (!response.ok) {
       throw new Error(await getResponseMessage(response, "Could not start cloud sync."));
     }
 
-    return (await response.json()) as SignedSyncUrlResponse;
+    return (await response.json()) as T;
+  }
+
+  async function uploadCloudBlob(signedUrl: string, blob: Blob, fileName: string) {
+    const uploadBody = new FormData();
+    uploadBody.append("cacheControl", "0");
+    uploadBody.append("", blob, fileName);
+    const response = await fetch(signedUrl, {
+      method: "PUT",
+      headers: { "x-upsert": "true" },
+      body: uploadBody
+    });
+
+    if (!response.ok) {
+      throw new Error(await getResponseMessage(response, "Could not upload cloud backup."));
+    }
   }
 
   async function handleCloudPush() {
     setIsSyncing(true);
     setBackupStatus("Pushing cloud backup...");
     try {
-      const backupBlob = appDataBackupToBlob(await createAppDataBackup());
-      const { signedUrl } = await requestSignedSyncUrl("/api/sync/upload-url");
-      const uploadBody = new FormData();
-      uploadBody.append("cacheControl", "3600");
-      uploadBody.append("", backupBlob, "backup.json");
-      const uploadResponse = await fetch(signedUrl, {
-        method: "PUT",
-        headers: { "x-upsert": "true" },
-        body: uploadBody
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(await getResponseMessage(uploadResponse, "Could not upload cloud backup."));
+      const backupBlob = new Blob([JSON.stringify(await createAppDataBackup())], { type: "application/json" });
+      const partCount = Math.ceil(backupBlob.size / CLOUD_SYNC_CHUNK_BYTES);
+      if (partCount > MAX_CLOUD_SYNC_PARTS) {
+        throw new Error("Cloud backup is too large to sync.");
       }
+
+      const { partUrls, manifestUrl } = await requestSignedSyncUrl<CloudUploadUrlsResponse>(
+        "/api/sync/upload-url",
+        { partCount }
+      );
+      if (partUrls.length !== partCount || !manifestUrl) {
+        throw new Error("Cloud sync returned an incomplete upload session.");
+      }
+
+      for (let index = 0; index < partCount; index += 1) {
+        setBackupStatus(`Pushing cloud backup (${index + 1}/${partCount})...`);
+        const start = index * CLOUD_SYNC_CHUNK_BYTES;
+        const part = backupBlob.slice(start, Math.min(start + CLOUD_SYNC_CHUNK_BYTES, backupBlob.size));
+        await uploadCloudBlob(partUrls[index], part, `${String(index).padStart(4, "0")}.part`);
+      }
+
+      const manifest: CloudBackupManifest = {
+        version: 1,
+        format: "chunked-json",
+        partCount,
+        byteLength: backupBlob.size,
+        createdAt: new Date().toISOString()
+      };
+      await uploadCloudBlob(
+        manifestUrl,
+        new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+        "manifest.json"
+      );
 
       setBackupStatus("Cloud backup pushed.");
     } catch (error) {
@@ -753,13 +812,55 @@ export default function Dashboard() {
     setIsSyncing(true);
     setBackupStatus("Pulling cloud backup...");
     try {
-      const { signedUrl } = await requestSignedSyncUrl("/api/sync/download-url");
-      const downloadResponse = await fetch(signedUrl, { cache: "no-store" });
-      if (!downloadResponse.ok) {
-        throw new Error(await getResponseMessage(downloadResponse, "Could not download cloud backup."));
+      const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url");
+      let backup: unknown;
+
+      if (index.kind === "legacy") {
+        const downloadResponse = await fetch(index.signedUrl, { cache: "no-store" });
+        if (!downloadResponse.ok) {
+          throw new Error(await getResponseMessage(downloadResponse, "Could not download cloud backup."));
+        }
+        backup = await downloadResponse.json();
+      } else {
+        const manifestResponse = await fetch(index.signedUrl, { cache: "no-store" });
+        if (!manifestResponse.ok) {
+          throw new Error(await getResponseMessage(manifestResponse, "Could not download cloud manifest."));
+        }
+        const manifest = (await manifestResponse.json()) as Partial<CloudBackupManifest>;
+        if (
+          manifest.version !== 1 ||
+          manifest.format !== "chunked-json" ||
+          !Number.isInteger(manifest.partCount) ||
+          !manifest.partCount ||
+          manifest.partCount > MAX_CLOUD_SYNC_PARTS
+        ) {
+          throw new Error("Cloud backup manifest is invalid.");
+        }
+
+        const { partUrls } = await requestSignedSyncUrl<CloudDownloadPartsResponse>("/api/sync/download-url", {
+          partCount: manifest.partCount
+        });
+        if (partUrls.length !== manifest.partCount) {
+          throw new Error("Cloud sync returned an incomplete download session.");
+        }
+
+        const parts: Blob[] = [];
+        for (let partIndex = 0; partIndex < partUrls.length; partIndex += 1) {
+          setBackupStatus(`Pulling cloud backup (${partIndex + 1}/${partUrls.length})...`);
+          const partResponse = await fetch(partUrls[partIndex], { cache: "no-store" });
+          if (!partResponse.ok) {
+            throw new Error(await getResponseMessage(partResponse, "Could not download a cloud backup part."));
+          }
+          parts.push(await partResponse.blob());
+        }
+        const backupBlob = new Blob(parts, { type: "application/json" });
+        if (typeof manifest.byteLength === "number" && backupBlob.size !== manifest.byteLength) {
+          throw new Error("Cloud backup is incomplete. Push it again from the source device.");
+        }
+        backup = JSON.parse(await backupBlob.text());
       }
 
-      await restoreAppDataBackup(await downloadResponse.json(), { replace: true });
+      await restoreAppDataBackup(backup, { replace: true });
       const next = await refreshData();
       const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
       if (nextActiveBook) {

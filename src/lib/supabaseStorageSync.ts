@@ -1,4 +1,5 @@
 const DEFAULT_SYNC_BUCKET = "ielts-sync";
+const MAX_SYNC_PARTS = 500;
 
 interface SupabaseSyncConfig {
   url: string;
@@ -36,6 +37,21 @@ export function normalizeSyncCode(syncCode: unknown) {
 
 export function getBackupObjectPath(syncCode: string) {
   return `${syncCode}/backup.json`;
+}
+
+export function getBackupManifestPath(syncCode: string) {
+  return `${syncCode}/manifest.json`;
+}
+
+export function getBackupPartPath(syncCode: string, partIndex: number) {
+  return `${syncCode}/parts/${String(partIndex).padStart(4, "0")}.part`;
+}
+
+export function normalizePartCount(partCount: unknown) {
+  if (!Number.isInteger(partCount) || Number(partCount) < 1 || Number(partCount) > MAX_SYNC_PARTS) {
+    throw new Error(`Backup must contain between 1 and ${MAX_SYNC_PARTS} parts.`);
+  }
+  return Number(partCount);
 }
 
 export function toAbsoluteStorageUrl(baseUrl: string, signedPath: string) {
@@ -107,8 +123,7 @@ export async function ensureSyncBucket(config: SupabaseSyncConfig) {
   }
 }
 
-export async function createSignedUploadUrl(config: SupabaseSyncConfig, objectPath: string) {
-  await ensureSyncBucket(config);
+async function signUploadUrl(config: SupabaseSyncConfig, objectPath: string) {
   const response = await fetchSupabase(
     `${config.url}/storage/v1/object/upload/sign/${encodeURIComponent(config.bucket)}/${encodeObjectPath(objectPath)}`,
     {
@@ -134,8 +149,7 @@ export async function createSignedUploadUrl(config: SupabaseSyncConfig, objectPa
   return toAbsoluteStorageUrl(config.url, signedPath);
 }
 
-export async function createSignedDownloadUrl(config: SupabaseSyncConfig, objectPath: string) {
-  await ensureSyncBucket(config);
+async function signDownloadUrl(config: SupabaseSyncConfig, objectPath: string) {
   const response = await fetchSupabase(
     `${config.url}/storage/v1/object/sign/${encodeURIComponent(config.bucket)}/${encodeObjectPath(objectPath)}`,
     {
@@ -156,4 +170,24 @@ export async function createSignedDownloadUrl(config: SupabaseSyncConfig, object
   }
 
   return toAbsoluteStorageUrl(config.url, signedPath);
+}
+
+export async function createSignedUploadUrl(config: SupabaseSyncConfig, objectPath: string) {
+  await ensureSyncBucket(config);
+  return signUploadUrl(config, objectPath);
+}
+
+export async function createSignedUploadUrls(config: SupabaseSyncConfig, objectPaths: string[]) {
+  await ensureSyncBucket(config);
+  return Promise.all(objectPaths.map((objectPath) => signUploadUrl(config, objectPath)));
+}
+
+export async function createSignedDownloadUrl(config: SupabaseSyncConfig, objectPath: string) {
+  await ensureSyncBucket(config);
+  return signDownloadUrl(config, objectPath);
+}
+
+export async function createSignedDownloadUrls(config: SupabaseSyncConfig, objectPaths: string[]) {
+  await ensureSyncBucket(config);
+  return Promise.all(objectPaths.map((objectPath) => signDownloadUrl(config, objectPath)));
 }
