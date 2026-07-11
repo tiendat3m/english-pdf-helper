@@ -8,9 +8,9 @@ export type InputMode = "all" | "stylus";
 
 export type ThemeMode = "light" | "warm" | "dark";
 
-export type StrokeColor = "black" | "blue" | "red";
+export type StrokeColor = "black" | "slate" | "blue" | "red" | "green" | "purple";
 
-export type HighlightColor = "yellow" | "green" | "pink";
+export type HighlightColor = "yellow" | "green" | "pink" | "blue" | "orange";
 
 export type BrushStyle = "ballpoint" | "pencil" | "marker" | "fountain";
 

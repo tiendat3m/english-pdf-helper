@@ -10,14 +10,19 @@ export const DELETED_BOOK_RETENTION_DAYS = 30;
 
 export const PEN_COLORS: Record<StrokeColor, string> = {
   black: "#1f2933",
+  slate: "#475569",
   blue: "#2563eb",
-  red: "#dc2626"
+  red: "#dc2626",
+  green: "#059669",
+  purple: "#7c3aed"
 };
 
 export const HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
   yellow: "#facc15",
   green: "#86efac",
-  pink: "#f9a8d4"
+  pink: "#f9a8d4",
+  blue: "#93c5fd",
+  orange: "#fdba74"
 };
 
 export const BOOKMARK_CATEGORIES: BookmarkCategory[] = [

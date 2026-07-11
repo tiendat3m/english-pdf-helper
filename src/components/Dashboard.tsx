@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   NotebookPen,
+  PenLine,
   Play,
   Sparkles,
   Star,
@@ -1182,7 +1183,7 @@ export default function Dashboard() {
             />
           )}
           <section className="flex min-w-0 flex-1 flex-col">
-            <div className="border-b border-stone-200 bg-white/78 p-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/78">
+            <div className="border-b border-stone-200 bg-white/86 p-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-2">
                   <button
@@ -1196,62 +1197,92 @@ export default function Dashboard() {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
                     <div className="text-xs text-stone-500 dark:text-stone-400">
-                      {editor.workspaceMode === "split" ? "Split: PDF + Notebook + Vocabulary" : "Focus: PDF centered"} -{" "}
-                      {editor.inputMode === "stylus" ? "Stylus only" : "Mouse, touch, and pen"} - {editor.aiEnabled ? "AI on" : "AI off"} -{" "}
-                      {editor.sidebarCollapsed ? "Library hidden" : "Library open"}
+                      Page {editor.currentPage} - {editor.workspaceMode === "split" ? "Study board open" : "Focus reading"} -{" "}
+                      {editor.inputMode === "stylus" ? "stylus locked" : "all input"}
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-paper/70 p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
                   <button
                     type="button"
                     onClick={() =>
                       setEditor((current) => ({ ...current, workspaceMode: current.workspaceMode === "split" ? "focus" : "split" }))
                     }
-                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
+                      editor.workspaceMode === "split"
+                        ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                        : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
+                    }`}
                   >
-                    {editor.workspaceMode === "split" ? "Split" : "Focus"}
+                    <NotebookPen className="h-4 w-4" />
+                    {editor.workspaceMode === "split" ? "Study board" : "Focus"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditor((current) => ({ ...current, inputMode: current.inputMode === "stylus" ? "all" : "stylus" }))}
-                    className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
+                      editor.inputMode === "stylus"
+                        ? "bg-sage text-white"
+                        : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
+                    }`}
                   >
-                    {editor.inputMode === "stylus" ? "Stylus only" : "All input"}
+                    <PenLine className="h-4 w-4" />
+                    {editor.inputMode === "stylus" ? "Stylus" : "All input"}
+                  </button>
+                  <button
+                    type="button"
+                    title="XP-Pen XS writing preset"
+                    onClick={() =>
+                      setEditor((current) => ({
+                        ...current,
+                        inputMode: "stylus",
+                        tool: "pen",
+                        brushStyle: "ballpoint",
+                        thickness: 0.75,
+                        penColor: current.penColor === "red" ? "black" : current.penColor
+                      }))
+                    }
+                    className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black text-stone-600 transition hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
+                  >
+                    <PenLine className="h-4 w-4" />
+                    XP-Pen XS
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditor((current) => ({ ...current, aiEnabled: !current.aiEnabled }))}
-                    className={`rounded-lg border px-3 py-2 text-xs font-black shadow-sm transition ${
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
                       editor.aiEnabled
-                        ? "border-sage bg-skysoft/55 text-stone-800 dark:bg-sage/20 dark:text-stone-100"
-                        : "border-stone-200 bg-white text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                        ? "bg-skysoft text-stone-900 dark:bg-sage/30 dark:text-stone-100"
+                        : "text-stone-500 hover:bg-white dark:text-stone-300 dark:hover:bg-stone-800"
                     }`}
                   >
+                    <Brain className="h-4 w-4" />
                     {editor.aiEnabled ? "AI on" : "AI off"}
                   </button>
-                  <Toolbar
-                    tool={editor.tool}
-                    penColor={editor.penColor}
-                    highlighterColor={editor.highlighterColor}
-                    brushStyle={editor.brushStyle}
-                    thickness={editor.thickness}
-                    canUndo={undoStack.length > 0}
-                    canRedo={redoStack.length > 0}
-                    onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
-                    onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
-                    onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
-                    onBrushStyleChange={(brushStyle) => setEditor((current) => ({ ...current, brushStyle }))}
-                    onThicknessChange={(thickness) => setEditor((current) => ({ ...current, thickness }))}
-                    onUndo={handleUndo}
-                    onRedo={handleRedo}
-                    onSave={() => activeBook && void saveBook(activeBook)}
-                    onClearPage={clearCurrentPageAnnotations}
-                    onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
-                    onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
-                    onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
-                  />
                 </div>
+              </div>
+              <div className="mt-3">
+                <Toolbar
+                  tool={editor.tool}
+                  penColor={editor.penColor}
+                  highlighterColor={editor.highlighterColor}
+                  brushStyle={editor.brushStyle}
+                  thickness={editor.thickness}
+                  canUndo={undoStack.length > 0}
+                  canRedo={redoStack.length > 0}
+                  onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
+                  onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
+                  onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
+                  onBrushStyleChange={(brushStyle) => setEditor((current) => ({ ...current, brushStyle }))}
+                  onThicknessChange={(thickness) => setEditor((current) => ({ ...current, thickness }))}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  onSave={() => activeBook && void saveBook(activeBook)}
+                  onClearPage={clearCurrentPageAnnotations}
+                  onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
+                  onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
+                  onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
+                />
               </div>
             </div>
             <div className="flex min-h-0 flex-1">
