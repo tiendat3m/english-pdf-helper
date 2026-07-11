@@ -18,6 +18,7 @@
     "react-dom": "^19.0.0",
     "react-konva": "^19.0.3",
     "react-pdf": "^9.2.1",
+    "tesseract.js": "^7.0.0",
     "uuid": "^11.0.3"
   },
   "devDependencies": {

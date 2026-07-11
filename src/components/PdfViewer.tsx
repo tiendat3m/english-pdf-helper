@@ -56,6 +56,12 @@ type HighlightPopupAnnotation = HighlightAnnotation & {
   selectedImageDataUrl?: string;
 };
 
+type HighlightCaptureOptions = {
+  includeAnnotations?: boolean;
+  format?: "jpeg" | "png";
+  padding?: number;
+};
+
 function isPdfJsTextItem(item: unknown): item is PdfJsTextItem {
   if (!item || typeof item !== "object") {
     return false;
@@ -188,6 +194,7 @@ export default function PdfViewer({
   const wheelFrameRef = useRef<number | null>(null);
   const wheelCommitTimerRef = useRef<number | null>(null);
   const previewZoomRef = useRef<number | null>(null);
+  const ocrRequestRef = useRef(0);
   const [baseWidth, setBaseWidth] = useState(860);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [previewZoom, setPreviewZoom] = useState<number | null>(null);
@@ -195,6 +202,8 @@ export default function PdfViewer({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isDocumentReady, setIsDocumentReady] = useState(false);
   const [textItems, setTextItems] = useState<PdfTextItem[]>([]);
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [highlightPopup, setHighlightPopup] = useState<{
     annotation: HighlightPopupAnnotation;
     anchor: { x: number; y: number };
@@ -255,6 +264,9 @@ export default function PdfViewer({
       setPageSize({ width: 0, height: 0 });
       setTextItems([]);
       setHighlightPopup(null);
+      setIsOcrLoading(false);
+      setOcrError(null);
+      ocrRequestRef.current += 1;
       setPreviewZoom(null);
       previewZoomRef.current = null;
   }, [book?.id]);
@@ -262,6 +274,9 @@ export default function PdfViewer({
   useEffect(() => {
     setTextItems([]);
     setHighlightPopup(null);
+    setIsOcrLoading(false);
+    setOcrError(null);
+    ocrRequestRef.current += 1;
     setPageSize({ width: 0, height: 0 });
     setPreviewZoom(null);
     previewZoomRef.current = null;
@@ -505,7 +520,8 @@ export default function PdfViewer({
     setPdfError(error.message);
   }
 
-  function captureHighlightImage(rect: NormalizedRect) {
+  function captureHighlightImage(rect: NormalizedRect, options: HighlightCaptureOptions = {}) {
+    const { includeAnnotations = true, format = "jpeg", padding = 0.012 } = options;
     const canvases = Array.from(pageShellRef.current?.querySelectorAll("canvas") ?? []);
     const pdfCanvas = canvases[0];
     if (!pdfCanvas) {
@@ -522,21 +538,22 @@ export default function PdfViewer({
     }
 
     compositeContext.drawImage(pdfCanvas, 0, 0);
-    canvases.slice(1).forEach((canvas) => {
-      const style = window.getComputedStyle(canvas);
-      const canvasRect = canvas.getBoundingClientRect();
-      if (style.display === "none" || style.visibility === "hidden" || canvasRect.width <= 0 || canvasRect.height <= 0) {
-        return;
-      }
+    if (includeAnnotations) {
+      canvases.slice(1).forEach((canvas) => {
+        const style = window.getComputedStyle(canvas);
+        const canvasRect = canvas.getBoundingClientRect();
+        if (style.display === "none" || style.visibility === "hidden" || canvasRect.width <= 0 || canvasRect.height <= 0) {
+          return;
+        }
 
-      const targetX = ((canvasRect.left - pageRect.left) / pageRect.width) * compositeCanvas.width;
-      const targetY = ((canvasRect.top - pageRect.top) / pageRect.height) * compositeCanvas.height;
-      const targetWidth = (canvasRect.width / pageRect.width) * compositeCanvas.width;
-      const targetHeight = (canvasRect.height / pageRect.height) * compositeCanvas.height;
-      compositeContext.drawImage(canvas, targetX, targetY, targetWidth, targetHeight);
-    });
+        const targetX = ((canvasRect.left - pageRect.left) / pageRect.width) * compositeCanvas.width;
+        const targetY = ((canvasRect.top - pageRect.top) / pageRect.height) * compositeCanvas.height;
+        const targetWidth = (canvasRect.width / pageRect.width) * compositeCanvas.width;
+        const targetHeight = (canvasRect.height / pageRect.height) * compositeCanvas.height;
+        compositeContext.drawImage(canvas, targetX, targetY, targetWidth, targetHeight);
+      });
+    }
 
-    const padding = 0.012;
     const x = clamp(rect.x - padding, 0, 1);
     const y = clamp(rect.y - padding, 0, 1);
     const right = clamp(rect.x + rect.width + padding, 0, 1);
@@ -547,7 +564,10 @@ export default function PdfViewer({
     const sourceHeight = Math.max(1, Math.round((bottom - y) * compositeCanvas.height));
 
     const maxSide = 1400;
-    const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+    const maxScale = Math.min(includeAnnotations ? 1 : 4, maxSide / Math.max(sourceWidth, sourceHeight));
+    const targetOcrHeight = includeAnnotations ? sourceHeight : 110;
+    const desiredScale = Math.max(1, targetOcrHeight / sourceHeight);
+    const scale = Math.max(0.1, Math.min(maxScale, desiredScale));
     const outputCanvas = document.createElement("canvas");
     outputCanvas.width = Math.max(1, Math.round(sourceWidth * scale));
     outputCanvas.height = Math.max(1, Math.round(sourceHeight * scale));
@@ -560,15 +580,97 @@ export default function PdfViewer({
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
     context.drawImage(compositeCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, outputCanvas.width, outputCanvas.height);
-    return outputCanvas.toDataURL("image/jpeg", 0.88);
+    if (!includeAnnotations) {
+      enhanceCanvasForOcr(outputCanvas);
+    }
+    return format === "png" ? outputCanvas.toDataURL("image/png") : outputCanvas.toDataURL("image/jpeg", 0.88);
+  }
+
+  function enhanceCanvasForOcr(canvas: HTMLCanvasElement) {
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < image.data.length; index += 4) {
+      const gray = image.data[index] * 0.299 + image.data[index + 1] * 0.587 + image.data[index + 2] * 0.114;
+      const contrasted = clamp((gray - 128) * 1.35 + 128, 0, 255);
+      image.data[index] = contrasted;
+      image.data[index + 1] = contrasted;
+      image.data[index + 2] = contrasted;
+    }
+    context.putImageData(image, 0, 0);
+  }
+
+  function cleanOcrText(text: string) {
+    return text
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/[|]/g, "I")
+      .replace(/\s+([,.!?;:])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  async function recognizeHighlightText(annotation: HighlightPopupAnnotation, anchor: { x: number; y: number }) {
+    const imageDataUrl = captureHighlightImage(annotation.rect, {
+      includeAnnotations: false,
+      format: "png",
+      padding: 0.006
+    });
+    if (!imageDataUrl) {
+      return;
+    }
+
+    const requestId = ocrRequestRef.current + 1;
+    ocrRequestRef.current = requestId;
+    setIsOcrLoading(true);
+    setOcrError(null);
+
+    try {
+      const { recognize } = await import("tesseract.js");
+      const result = await recognize(imageDataUrl, "eng");
+      if (ocrRequestRef.current !== requestId) {
+        return;
+      }
+
+      const selectedText = cleanOcrText(result.data.text);
+      if (!selectedText) {
+        setOcrError("OCR could not read this crop. Try highlighting a little tighter around the printed word.");
+        return;
+      }
+
+      const persistedAnnotation: HighlightAnnotation = {
+        ...annotation,
+        selectedText,
+        selectedTextSource: "ocr"
+      };
+      onUpdateAnnotation(persistedAnnotation);
+      const nextAnnotation = { ...persistedAnnotation, selectedImageDataUrl: annotation.selectedImageDataUrl };
+      setHighlightPopup({ annotation: nextAnnotation, anchor });
+    } catch {
+      if (ocrRequestRef.current === requestId) {
+        setOcrError("OCR failed in this browser. AI can still use the selected image if a vision model is configured.");
+      }
+    } finally {
+      if (ocrRequestRef.current === requestId) {
+        setIsOcrLoading(false);
+      }
+    }
   }
 
   function handleHighlightCreated(annotation: HighlightAnnotation, anchor: { x: number; y: number }) {
     const selectedImageDataUrl = annotation.selectedText ? "" : captureHighlightImage(annotation.rect);
+    const nextAnnotation = selectedImageDataUrl ? { ...annotation, selectedImageDataUrl } : annotation;
     setHighlightPopup({
-      annotation: selectedImageDataUrl ? { ...annotation, selectedImageDataUrl } : annotation,
+      annotation: nextAnnotation,
       anchor
     });
+    setOcrError(null);
+    if (!annotation.selectedText && selectedImageDataUrl) {
+      void recognizeHighlightText(nextAnnotation, anchor);
+    }
   }
 
   function highlightVocabularyRecord(annotation: HighlightPopupAnnotation) {
@@ -585,8 +687,11 @@ export default function PdfViewer({
     if (annotation.selectedText) {
       return annotation.selectedText;
     }
+    if (isOcrLoading) {
+      return "Reading printed text from this highlight...";
+    }
     if (annotation.selectedImageDataUrl) {
-      return "No PDF text detected. I captured this selected image for AI solving.";
+      return ocrError || "No PDF text detected yet. I captured this selected image for AI solving.";
     }
     if (annotation.selectedTextSource === "handwriting") {
       return "Handwriting selected. OCR is not enabled yet, so this ink is saved visually.";
