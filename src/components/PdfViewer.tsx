@@ -604,12 +604,17 @@ export default function PdfViewer({
   }
 
   function cleanOcrText(text: string) {
-    return text
+    const normalized = text
       .replace(/[“”]/g, "\"")
       .replace(/[‘’]/g, "'")
       .replace(/[|]/g, "I")
       .replace(/\s+([,.!?;:])/g, "$1")
       .replace(/\s+/g, " ")
+      .trim();
+
+    return normalized
+      .replace(/^[^A-Za-z0-9]+/u, "")
+      .replace(/[^A-Za-z0-9)]+$/u, "")
       .trim();
   }
 
@@ -674,12 +679,13 @@ export default function PdfViewer({
   }
 
   function highlightVocabularyRecord(annotation: HighlightPopupAnnotation) {
+    const selectedText = annotation.selectedText.trim();
     return {
-      word: annotation.selectedText || "Highlighted passage",
+      word: selectedText || "Highlighted passage",
       sourceBookId: annotation.bookId,
       sourceBookTitle: book?.title ?? "Unknown PDF",
       sourcePage: annotation.pageNumber,
-      selectedImageDataUrl: annotation.selectedImageDataUrl
+      selectedImageDataUrl: selectedText ? undefined : annotation.selectedImageDataUrl
     };
   }
 

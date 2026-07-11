@@ -527,6 +527,7 @@ export default function Dashboard() {
     setAiMode(mode);
     setAiError(null);
     setIsAiLoading(true);
+    const selectedText = selection.word === "Highlighted passage" ? "" : selection.word.trim();
 
     try {
       const response = await fetch("/api/ai/ielts", {
@@ -534,8 +535,8 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode,
-          text: selection.selectedImageDataUrl && selection.word === "Highlighted passage" ? "" : selection.word,
-          imageDataUrl: selection.selectedImageDataUrl,
+          text: selectedText,
+          imageDataUrl: selectedText ? undefined : selection.selectedImageDataUrl,
           sourceBookTitle: selection.sourceBookTitle,
           sourcePage: selection.sourcePage
         })
