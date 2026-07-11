@@ -612,10 +612,20 @@ export default function PdfViewer({
       .replace(/\s+/g, " ")
       .trim();
 
-    return normalized
+    const cleaned = normalized
       .replace(/^[^A-Za-z0-9]+/u, "")
       .replace(/[^A-Za-z0-9)]+$/u, "")
       .trim();
+
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    while (
+      tokens.length > 1 &&
+      (/^\d+[\).]?$/.test(tokens[0]) || (/^[a-z]$/.test(tokens[0]) && /^[A-Za-z]{3,}/.test(tokens[1])))
+    ) {
+      tokens.shift();
+    }
+
+    return tokens.join(" ");
   }
 
   async function recognizeHighlightText(annotation: HighlightPopupAnnotation, anchor: { x: number; y: number }) {
