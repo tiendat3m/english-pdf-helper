@@ -201,6 +201,40 @@ function ollamaEndpoint(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
+function isLikelyVisionModel(model: string) {
+  return /\b(?:gemma4|llava|bakllava|moondream|minicpm-v|vision|vl|pixtral)\b/i.test(model);
+}
+
+function ollamaImageModel() {
+  const visionModel = process.env.OLLAMA_VISION_MODEL?.trim();
+  const textModel = process.env.OLLAMA_MODEL?.trim();
+
+  if (visionModel) {
+    return visionModel;
+  }
+  if (textModel && isLikelyVisionModel(textModel)) {
+    return textModel;
+  }
+
+  return "";
+}
+
+function getOllamaErrorMessage(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("error" in payload)) {
+    return "Ollama request failed.";
+  }
+
+  const error = payload.error;
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Ollama request failed.";
+  }
+}
+
 async function callOllama(prompt: string, image?: { mimeType: string; data: string } | null) {
   const provider = process.env.AI_PROVIDER?.toLowerCase();
   const hasOllamaConfig = Boolean(process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || provider === "ollama");
@@ -211,7 +245,17 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
     return null;
   }
 
-  const model = image ? process.env.OLLAMA_VISION_MODEL ?? process.env.OLLAMA_MODEL ?? "llava" : process.env.OLLAMA_MODEL ?? "llama3.2";
+  const model = image ? ollamaImageModel() : process.env.OLLAMA_MODEL ?? "llama3.2";
+  if (image && !model) {
+    return NextResponse.json(
+      {
+        error:
+          "This scanned/image-only selection needs a vision model. Set OLLAMA_VISION_MODEL=gemma4 or another Ollama vision model, then redeploy/restart.",
+        provider: "ollama"
+      },
+      { status: 400 }
+    );
+  }
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
@@ -256,14 +300,16 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
 
   const payload = (await response.json()) as unknown;
   if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "error" in payload
-        ? JSON.stringify(payload.error)
-        : "Ollama request failed.";
-    const imageHint = image
-      ? " Image selections need a vision-capable Ollama model. Set OLLAMA_VISION_MODEL to one, or select real PDF text."
-      : "";
-    return NextResponse.json({ error: `${message}${imageHint}`, provider: "ollama" }, { status: response.status });
+    const message = getOllamaErrorMessage(payload);
+    const quotaHint =
+      response.status === 429
+        ? `Ollama quota/rate limit hit for ${model}. Try again later, add usage in Ollama, or switch to another model/provider.`
+        : message;
+    const imageHint =
+      image && !process.env.OLLAMA_VISION_MODEL
+        ? " For scanned pages, configure OLLAMA_VISION_MODEL=gemma4 or another vision-capable model."
+        : "";
+    return NextResponse.json({ error: `${quotaHint}${imageHint}`, provider: "ollama" }, { status: response.status });
   }
 
   return extractOllamaOutputText(payload);
