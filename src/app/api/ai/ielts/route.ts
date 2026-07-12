@@ -93,6 +93,26 @@ function extractOllamaOutputText(response: unknown) {
   return "";
 }
 
+function extractOpenAiCompatibleChatText(response: unknown) {
+  if (!response || typeof response !== "object" || !("choices" in response) || !Array.isArray(response.choices)) {
+    return "";
+  }
+
+  return (response.choices as unknown[])
+    .flatMap((choice: unknown) => {
+      if (!choice || typeof choice !== "object" || !("message" in choice)) {
+        return [];
+      }
+      const message = choice.message;
+      if (message && typeof message === "object" && "content" in message && typeof message.content === "string") {
+        return [message.content];
+      }
+      return [];
+    })
+    .join("\n")
+    .trim();
+}
+
 function fallbackJson(text: string, mode: AiMode) {
   return {
     title: modeLabels[mode],
@@ -195,6 +215,35 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function configuredProvider() {
+  return process.env.AI_PROVIDER?.toLowerCase() ?? "auto";
+}
+
+function shouldTryProvider(providerName: string) {
+  const provider = configuredProvider();
+  return !provider || provider === "auto" || provider === providerName;
+}
+
+function shouldContinueAfterProviderError() {
+  return configuredProvider() === "auto";
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.clone().json()) as { error?: unknown; message?: unknown; provider?: unknown };
+    const provider = typeof payload.provider === "string" ? `${payload.provider}: ` : "";
+    const message =
+      typeof payload.error === "string"
+        ? payload.error
+        : typeof payload.message === "string"
+          ? payload.message
+          : JSON.stringify(payload.error ?? payload.message ?? fallback);
+    return `${provider}${message}`;
+  } catch {
+    return fallback;
+  }
+}
+
 function ollamaEndpoint(path: string) {
   const baseUrl = stripTrailingSlash(process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434");
   const apiBaseUrl = baseUrl.endsWith("/api") ? baseUrl : `${baseUrl}/api`;
@@ -236,9 +285,10 @@ function getOllamaErrorMessage(payload: unknown) {
 }
 
 async function callOllama(prompt: string, image?: { mimeType: string; data: string } | null) {
-  const provider = process.env.AI_PROVIDER?.toLowerCase();
-  const hasOllamaConfig = Boolean(process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || provider === "ollama");
-  if (provider && provider !== "auto" && provider !== "ollama") {
+  const hasOllamaConfig = Boolean(
+    process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || configuredProvider() === "ollama"
+  );
+  if (!shouldTryProvider("ollama")) {
     return null;
   }
   if (!hasOllamaConfig) {
@@ -316,8 +366,7 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
 }
 
 async function callGemini(prompt: string, image?: { mimeType: string; data: string } | null) {
-  const provider = process.env.AI_PROVIDER?.toLowerCase();
-  if (provider && provider !== "auto" && provider !== "gemini") {
+  if (!shouldTryProvider("gemini")) {
     return null;
   }
 
@@ -370,9 +419,78 @@ async function callGemini(prompt: string, image?: { mimeType: string; data: stri
   return extractGeminiOutputText(payload);
 }
 
+function groqEndpoint(path: string) {
+  const baseUrl = stripTrailingSlash(process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1");
+  return `${baseUrl}${path}`;
+}
+
+async function callGroq(prompt: string, image?: { mimeType: string; data: string } | null) {
+  if (!shouldTryProvider("groq")) {
+    return null;
+  }
+
+  const apiKey = process.env.GROQ_API_KEY || process.env.GROQ;
+  if (!apiKey) {
+    return null;
+  }
+
+  if (image) {
+    if (configuredProvider() === "groq") {
+      return NextResponse.json(
+        { error: "Groq is configured for text-only AI in this app. Use OCR/PDF text, or configure Gemini/Ollama vision for image selections.", provider: "groq" },
+        { status: 400 }
+      );
+    }
+    return null;
+  }
+
+  const model = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
+  let response: Response;
+  try {
+    response = await fetch(groqEndpoint("/chat/completions"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.2
+      })
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? `Groq request failed: ${error.message}. Check GROQ_API_KEY and GROQ_BASE_URL.`
+            : "Groq request failed. Check GROQ_API_KEY and GROQ_BASE_URL.",
+        provider: "groq"
+      },
+      { status: 502 }
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? JSON.stringify(payload.error)
+        : "Groq request failed.";
+    const quotaHint =
+      response.status === 429
+        ? `Groq quota/rate limit hit for ${model}. Trying another provider works when AI_PROVIDER=auto.`
+        : message;
+    return NextResponse.json({ error: quotaHint, provider: "groq" }, { status: response.status });
+  }
+
+  return extractOpenAiCompatibleChatText(payload);
+}
+
 async function callOpenAi(prompt: string) {
-  const provider = process.env.AI_PROVIDER?.toLowerCase();
-  if (provider && provider !== "auto" && provider !== "openai") {
+  if (!shouldTryProvider("openai")) {
     return null;
   }
 
@@ -427,9 +545,14 @@ export async function POST(request: Request) {
 
   const fallbackText = text || "Selected image";
   const prompt = buildPrompt(body, text, Boolean(image));
+  const providerErrors: string[] = [];
+
   const ollamaResult = await callOllama(prompt, image);
   if (ollamaResult instanceof NextResponse) {
-    return ollamaResult;
+    if (!shouldContinueAfterProviderError()) {
+      return ollamaResult;
+    }
+    providerErrors.push(await responseErrorMessage(ollamaResult, "Ollama request failed."));
   }
   if (typeof ollamaResult === "string") {
     return NextResponse.json(parseJsonOrFallback(ollamaResult, fallbackText, body.mode));
@@ -437,22 +560,46 @@ export async function POST(request: Request) {
 
   const geminiResult = await callGemini(prompt, image);
   if (geminiResult instanceof NextResponse) {
-    return geminiResult;
+    if (!shouldContinueAfterProviderError()) {
+      return geminiResult;
+    }
+    providerErrors.push(await responseErrorMessage(geminiResult, "Gemini request failed."));
   }
   if (typeof geminiResult === "string") {
     return NextResponse.json(parseJsonOrFallback(geminiResult, fallbackText, body.mode));
   }
 
+  const groqResult = await callGroq(prompt, image);
+  if (groqResult instanceof NextResponse) {
+    if (!shouldContinueAfterProviderError()) {
+      return groqResult;
+    }
+    providerErrors.push(await responseErrorMessage(groqResult, "Groq request failed."));
+  }
+  if (typeof groqResult === "string") {
+    return NextResponse.json(parseJsonOrFallback(groqResult, fallbackText, body.mode));
+  }
+
   const openAiResult = await callOpenAi(prompt);
   if (openAiResult instanceof NextResponse) {
-    return openAiResult;
+    if (!shouldContinueAfterProviderError()) {
+      return openAiResult;
+    }
+    providerErrors.push(await responseErrorMessage(openAiResult, "OpenAI request failed."));
   }
   if (typeof openAiResult === "string") {
     return NextResponse.json(parseJsonOrFallback(openAiResult, fallbackText, body.mode));
   }
 
+  if (providerErrors.length > 0) {
+    return NextResponse.json(
+      { error: `All configured AI providers failed: ${providerErrors.join(" | ")}` },
+      { status: 502 }
+    );
+  }
+
   return NextResponse.json(
-    { error: "No AI provider configured. Set AI_PROVIDER=ollama with OLLAMA_MODEL, or configure GEMINI_API_KEY / OPENAI_API_KEY." },
+    { error: "No AI provider configured. Set AI_PROVIDER=auto and configure OLLAMA, GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY." },
     { status: 500 }
   );
 }
