@@ -53,6 +53,7 @@ import type {
   AppData,
   BookRecord,
   BookmarkCategory,
+  EditorState,
   MainTab,
   PageStatus,
   VocabularyRecord,
@@ -103,8 +104,10 @@ type HistoryAction =
 
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
+const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
+const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 
 interface CloudUploadUrlsResponse {
   partUrls: string[];
@@ -132,6 +135,152 @@ interface CloudBackupManifest {
   createdAt: string;
 }
 
+type WorkspaceSession = Partial<
+  Pick<EditorState, "activeTab" | "activeBookId" | "currentPage" | "zoom" | "workspaceMode" | "sidebarCollapsed">
+> & {
+  isWorkspaceOpen?: boolean;
+};
+
+function clampPage(page: number) {
+  return Math.max(1, Math.floor(page));
+}
+
+function clampZoom(zoom: number) {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+}
+
+function isMainTab(value: string | null): value is MainTab {
+  return value === "learn" || value === "vocabulary" || value === "progress";
+}
+
+function isWorkspaceMode(value: string | null): value is EditorState["workspaceMode"] {
+  return value === "focus" || value === "split";
+}
+
+function parsePositiveNumber(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function readWorkspaceSessionFromUrl(): WorkspaceSession | null {
+  const params = new URLSearchParams(window.location.search);
+  if (!WORKSPACE_URL_KEYS.some((key) => params.has(key))) {
+    return null;
+  }
+
+  const session: WorkspaceSession = {};
+  const tab = params.get("tab");
+  const page = parsePositiveNumber(params.get("page"));
+  const zoom = parsePositiveNumber(params.get("zoom"));
+  const workspaceMode = params.get("workspace");
+  const sidebar = params.get("sidebar");
+  const open = params.get("open");
+  const book = params.get("book");
+
+  if (isMainTab(tab)) {
+    session.activeTab = tab;
+  }
+  if (book) {
+    session.activeBookId = book;
+  }
+  if (page) {
+    session.currentPage = clampPage(page);
+  }
+  if (zoom) {
+    session.zoom = clampZoom(zoom);
+  }
+  if (isWorkspaceMode(workspaceMode)) {
+    session.workspaceMode = workspaceMode;
+  }
+  if (sidebar === "hidden" || sidebar === "open") {
+    session.sidebarCollapsed = sidebar === "hidden";
+  }
+  if (open === "1" || open === "0") {
+    session.isWorkspaceOpen = open === "1";
+  }
+
+  return session;
+}
+
+function readStoredWorkspaceSession(): WorkspaceSession | null {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_SESSION_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as WorkspaceSession;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function mergeWorkspaceSession(editor: EditorState, session: WorkspaceSession): EditorState {
+  return {
+    ...editor,
+    activeTab: session.activeTab ?? editor.activeTab,
+    activeBookId: session.activeBookId ?? editor.activeBookId,
+    currentPage: session.currentPage ? clampPage(session.currentPage) : editor.currentPage,
+    zoom: session.zoom ? clampZoom(session.zoom) : editor.zoom,
+    workspaceMode: session.workspaceMode ?? editor.workspaceMode,
+    sidebarCollapsed: typeof session.sidebarCollapsed === "boolean" ? session.sidebarCollapsed : editor.sidebarCollapsed
+  };
+}
+
+function createWorkspaceSession(editor: EditorState, isWorkspaceOpen: boolean): WorkspaceSession {
+  return {
+    activeTab: editor.activeTab,
+    activeBookId: editor.activeBookId,
+    currentPage: editor.currentPage,
+    zoom: editor.zoom,
+    workspaceMode: editor.workspaceMode,
+    sidebarCollapsed: editor.sidebarCollapsed,
+    isWorkspaceOpen
+  };
+}
+
+function writeStoredWorkspaceSession(editor: EditorState, isWorkspaceOpen: boolean) {
+  localStorage.setItem(WORKSPACE_SESSION_STORAGE_KEY, JSON.stringify(createWorkspaceSession(editor, isWorkspaceOpen)));
+}
+
+function getWorkspaceNavigationKey(editor: EditorState, isWorkspaceOpen: boolean) {
+  return [editor.activeTab, editor.activeBookId ?? "", isWorkspaceOpen ? "open" : "home", editor.currentPage, editor.workspaceMode].join("|");
+}
+
+function buildWorkspaceUrl(editor: EditorState, isWorkspaceOpen: boolean) {
+  const url = new URL(window.location.href);
+  WORKSPACE_URL_KEYS.forEach((key) => url.searchParams.delete(key));
+
+  if (editor.activeTab !== "learn") {
+    url.searchParams.set("tab", editor.activeTab);
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  if (!isWorkspaceOpen) {
+    url.searchParams.set("tab", "learn");
+    url.searchParams.set("open", "0");
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  url.searchParams.set("tab", "learn");
+  url.searchParams.set("open", "1");
+  if (editor.activeBookId) {
+    url.searchParams.set("book", editor.activeBookId);
+  }
+  url.searchParams.set("page", String(editor.currentPage));
+  url.searchParams.set("zoom", editor.zoom.toFixed(2));
+  url.searchParams.set("workspace", editor.workspaceMode);
+  url.searchParams.set("sidebar", editor.sidebarCollapsed ? "hidden" : "open");
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 async function getResponseMessage(response: Response, fallback: string) {
   try {
     const payload = (await response.json()) as { message?: string; error?: string };
@@ -152,10 +301,13 @@ const PdfViewer = dynamic(() => import("./PdfViewer"), {
 
 export default function Dashboard() {
   const backupInputRef = useRef<HTMLInputElement>(null);
+  const suppressUrlSyncRef = useRef(false);
+  const lastNavigationKeyRef = useRef("");
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isNavigationReady, setIsNavigationReady] = useState(false);
   const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
   const [aiSelection, setAiSelection] = useState<VocabularyDraft | null>(null);
@@ -183,6 +335,70 @@ export default function Dashboard() {
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    const urlSession = readWorkspaceSessionFromUrl();
+    const storedSession = urlSession ?? readStoredWorkspaceSession();
+
+    if (storedSession) {
+      setEditor((current) => mergeWorkspaceSession(current, storedSession));
+      setIsWorkspaceOpen(
+        typeof storedSession.isWorkspaceOpen === "boolean"
+          ? storedSession.isWorkspaceOpen
+          : storedSession.activeTab === "learn" && Boolean(storedSession.activeBookId)
+      );
+    }
+
+    setIsNavigationReady(true);
+  }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      const urlSession = readWorkspaceSessionFromUrl();
+      suppressUrlSyncRef.current = true;
+
+      if (!urlSession) {
+        setEditor((current) => ({ ...current, activeTab: "learn" }));
+        setIsWorkspaceOpen(false);
+        return;
+      }
+
+      setEditor((current) => mergeWorkspaceSession(current, urlSession));
+      setIsWorkspaceOpen(
+        typeof urlSession.isWorkspaceOpen === "boolean"
+          ? urlSession.isWorkspaceOpen
+          : urlSession.activeTab === "learn" && Boolean(urlSession.activeBookId)
+      );
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (!isNavigationReady) {
+      return;
+    }
+
+    writeStoredWorkspaceSession(editor, isWorkspaceOpen);
+
+    const nextNavigationKey = getWorkspaceNavigationKey(editor, isWorkspaceOpen);
+    const nextUrl = buildWorkspaceUrl(editor, isWorkspaceOpen);
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (suppressUrlSyncRef.current) {
+      suppressUrlSyncRef.current = false;
+      lastNavigationKeyRef.current = nextNavigationKey;
+      return;
+    }
+
+    if (nextUrl !== currentUrl) {
+      const shouldPush = Boolean(lastNavigationKeyRef.current) && lastNavigationKeyRef.current !== nextNavigationKey;
+      window.history[shouldPush ? "pushState" : "replaceState"]({ source: "ielts-pdf-notes" }, "", nextUrl);
+    }
+
+    lastNavigationKeyRef.current = nextNavigationKey;
+  }, [editor, isNavigationReady, isWorkspaceOpen]);
 
   useEffect(() => {
     setSyncCode(localStorage.getItem(SYNC_CODE_STORAGE_KEY) ?? "");
