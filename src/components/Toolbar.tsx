@@ -1,11 +1,13 @@
 "use client";
 
 import type { ComponentType } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Eraser,
   FileDown,
   Highlighter,
   Minus,
+  MousePointer2,
   NotebookPen,
   Paintbrush,
   PenLine,
@@ -43,6 +45,7 @@ interface ToolbarProps {
 }
 
 const toolButtons: Array<{ tool: ToolMode; label: string; shortcut: string; icon: ComponentType<{ className?: string }> }> = [
+  { tool: "select", label: "Select", shortcut: "S", icon: MousePointer2 },
   { tool: "pen", label: "Pen", shortcut: "P", icon: PenLine },
   { tool: "highlighter", label: "Mark", shortcut: "H", icon: Highlighter },
   { tool: "note", label: "Note", shortcut: "N", icon: NotebookPen },
@@ -56,11 +59,20 @@ const brushOptions: Array<{ value: BrushStyle; label: string }> = [
   { value: "marker", label: "Marker" }
 ];
 
-const stylusPresets: Array<{ label: string; brush: BrushStyle; thickness: number }> = [
-  { label: "XS", brush: "ballpoint", thickness: 0.75 },
-  { label: "Fine", brush: "pencil", thickness: 0.9 },
-  { label: "Study", brush: "ballpoint", thickness: 1.15 },
-  { label: "Bold", brush: "fountain", thickness: 1.6 }
+const stylusPresets: Array<{
+  label: string;
+  detail: string;
+  tool: ToolMode;
+  brush: BrushStyle;
+  thickness: number;
+  penColor?: StrokeColor;
+  highlighterColor?: HighlightColor;
+}> = [
+  { label: "Tiny", detail: "XP-Pen XS fine ink", tool: "pen", brush: "ballpoint", thickness: 0.55, penColor: "black" },
+  { label: "Pencil", detail: "light draft notes", tool: "pen", brush: "pencil", thickness: 0.75, penColor: "slate" },
+  { label: "Correct", detail: "red answer marks", tool: "pen", brush: "fountain", thickness: 0.9, penColor: "red" },
+  { label: "Vocab", detail: "yellow text highlight", tool: "highlighter", brush: "marker", thickness: 1.1, highlighterColor: "yellow" },
+  { label: "Review", detail: "orange review highlight", tool: "highlighter", brush: "marker", thickness: 1.1, highlighterColor: "orange" }
 ];
 
 const penLabels: Record<StrokeColor, string> = {
@@ -101,6 +113,8 @@ export default function Toolbar({
   onZoomOut,
   onFitWidth
 }: ToolbarProps) {
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const clearConfirmTimerRef = useRef<number | null>(null);
   const showingPenColors = tool !== "highlighter";
   const colorEntries = showingPenColors
     ? (Object.keys(PEN_COLORS) as StrokeColor[]).map((color) => ({ color, value: PEN_COLORS[color], label: penLabels[color] }))
@@ -110,11 +124,26 @@ export default function Toolbar({
         label: highlightLabels[color]
       }));
 
-  function applyPreset(brush: BrushStyle, nextThickness: number) {
-    onBrushStyleChange(brush);
-    onThicknessChange(nextThickness);
-    onToolChange("pen");
+  function applyPreset(preset: (typeof stylusPresets)[number]) {
+    onToolChange(preset.tool);
+    onBrushStyleChange(preset.brush);
+    onThicknessChange(preset.thickness);
+    if (preset.penColor) {
+      onPenColorChange(preset.penColor);
+    }
+    if (preset.highlighterColor) {
+      onHighlighterColorChange(preset.highlighterColor);
+    }
+    setConfirmingClear(false);
   }
+
+  useEffect(() => {
+    return () => {
+      if (clearConfirmTimerRef.current !== null) {
+        window.clearTimeout(clearConfirmTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white/92 p-2 shadow-tool backdrop-blur dark:border-stone-700 dark:bg-stone-900/92">
@@ -164,10 +193,10 @@ export default function Toolbar({
           <button
             key={preset.label}
             type="button"
-            title={`${preset.label}: ${preset.brush}, ${preset.thickness}px`}
-            onClick={() => applyPreset(preset.brush, preset.thickness)}
+            title={`${preset.label}: ${preset.detail}`}
+            onClick={() => applyPreset(preset)}
             className={`h-8 rounded-md px-2 text-xs font-black transition ${
-              tool === "pen" && brushStyle === preset.brush && Math.abs(thickness - preset.thickness) < 0.01
+              tool === preset.tool && brushStyle === preset.brush && Math.abs(thickness - preset.thickness) < 0.01
                 ? "bg-sage text-white shadow-sm"
                 : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-900"
             }`}
@@ -230,8 +259,25 @@ export default function Toolbar({
         <button className="toolbar-icon" type="button" title="Save" onClick={onSave}>
           <Save className="h-4 w-4" />
         </button>
-        <button className="toolbar-icon danger-icon" type="button" title="Clear all annotations on this page" onClick={onClearPage}>
+        <button
+          className={`toolbar-icon danger-icon ${confirmingClear ? "confirm-clear" : ""}`}
+          type="button"
+          title={confirmingClear ? "Click again to clear this page" : "Clear all annotations on this page"}
+          onClick={() => {
+            if (!confirmingClear) {
+              setConfirmingClear(true);
+              if (clearConfirmTimerRef.current !== null) {
+                window.clearTimeout(clearConfirmTimerRef.current);
+              }
+              clearConfirmTimerRef.current = window.setTimeout(() => setConfirmingClear(false), 2600);
+              return;
+            }
+            setConfirmingClear(false);
+            onClearPage();
+          }}
+        >
           <Trash2 className="h-4 w-4" />
+          {confirmingClear && <span>Sure?</span>}
         </button>
         <div className="mx-1 h-7 w-px bg-stone-200 dark:bg-stone-700" />
         <button className="toolbar-icon" type="button" title="Zoom in (+)" onClick={onZoomIn}>
@@ -249,7 +295,7 @@ export default function Toolbar({
         .toolbar-icon {
           display: grid;
           height: 2rem;
-          width: 2rem;
+          min-width: 2rem;
           place-items: center;
           border-radius: 0.375rem;
           color: rgb(87 83 78);
@@ -264,6 +310,15 @@ export default function Toolbar({
         }
         .danger-icon {
           color: rgb(190 18 60);
+        }
+        .confirm-clear {
+          width: auto;
+          grid-auto-flow: column;
+          gap: 0.25rem;
+          padding: 0 0.5rem;
+          background: rgb(255 241 242);
+          font-size: 0.7rem;
+          font-weight: 900;
         }
         .danger-icon:hover:not(:disabled) {
           background: rgb(255 241 242);

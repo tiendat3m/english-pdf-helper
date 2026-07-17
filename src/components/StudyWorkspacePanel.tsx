@@ -13,6 +13,7 @@ interface StudyWorkspacePanelProps {
   pageStatuses: PageStatusRecord[];
   onAddQuickNote: (text: string) => void;
   onJumpToPage: (page: number) => void;
+  onSetPageStatus: (status: PageStatus) => void;
 }
 
 const statusIcons: Record<PageStatus, ComponentType<{ className?: string }>> = {
@@ -31,7 +32,8 @@ export default function StudyWorkspacePanel({
   vocabulary,
   pageStatuses,
   onAddQuickNote,
-  onJumpToPage
+  onJumpToPage,
+  onSetPageStatus
 }: StudyWorkspacePanelProps) {
   const pageNotes = annotations.filter(
     (annotation): annotation is StickyNoteAnnotation =>
@@ -45,10 +47,14 @@ export default function StudyWorkspacePanel({
     .sort((a, b) => a.pageNumber - b.pageNumber);
   const currentStatus = bookStatuses.find((status) => status.pageNumber === currentPage)?.status ?? "not-started";
   const CurrentStatusIcon = statusIcons[currentStatus];
+  const pageAnnotations = annotations.filter((annotation) => annotation.bookId === book?.id && annotation.pageNumber === currentPage);
+  const strokeCount = pageAnnotations.filter((annotation) => annotation.type === "stroke").length;
+  const highlightCount = pageAnnotations.filter((annotation) => annotation.type === "highlight").length;
   const statusCounts = statusOrder.map((status) => ({
     status,
     count: bookStatuses.filter((item) => item.status === status).length
   }));
+  const nextReviewPage = bookStatuses.find((status) => status.status === "need-review" && status.pageNumber !== currentPage);
 
   return (
     <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-l border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:block">
@@ -65,9 +71,42 @@ export default function StudyWorkspacePanel({
 
       <div className="mt-4 grid grid-cols-3 gap-2">
         <StatTile label="Notes" value={pageNotes.length} />
-        <StatTile label="Page vocab" value={currentPageVocabulary.length} />
-        <StatTile label="Book vocab" value={bookVocabulary.length} />
+        <StatTile label="Ink" value={strokeCount} />
+        <StatTile label="Marks" value={highlightCount} />
       </div>
+
+      <section className="mt-4 rounded-lg border border-stone-200 bg-white/92 p-3 shadow-tool dark:border-stone-800 dark:bg-stone-900/92">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-black text-stone-800 dark:text-stone-100">Page status</div>
+          {nextReviewPage && (
+            <button
+              type="button"
+              onClick={() => onJumpToPage(nextReviewPage.pageNumber)}
+              className="text-[11px] font-black text-sage transition hover:text-ink dark:hover:text-paper"
+            >
+              next review p. {nextReviewPage.pageNumber}
+            </button>
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {statusOrder.map((status) => {
+            const Icon = statusIcons[status];
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => onSetPageStatus(status)}
+                className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-black transition hover:-translate-y-0.5 ${PAGE_STATUS_STYLES[status]} ${
+                  currentStatus === status ? "ring-2 ring-sage/35" : ""
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {PAGE_STATUS_LABELS[status]}
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="mt-4 rounded-lg border border-amber-200 bg-[#fff5b8] p-3 shadow-tool dark:border-amber-900 dark:bg-amber-950">
         <div className="flex items-center gap-2 text-sm font-black text-stone-800 dark:text-amber-50">
@@ -116,6 +155,10 @@ export default function StudyWorkspacePanel({
             Vocabulary
           </div>
           {currentPageVocabulary.length > 0 && <span className="text-[11px] font-black text-sage">page match</span>}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <StatTile label="Page vocab" value={currentPageVocabulary.length} />
+          <StatTile label="Book vocab" value={bookVocabulary.length} />
         </div>
         <div className="mt-3 space-y-2">
           {(currentPageVocabulary.length ? currentPageVocabulary : recentVocabulary).length ? (

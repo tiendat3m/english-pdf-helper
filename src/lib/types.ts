@@ -1,6 +1,6 @@
 export type MainTab = "learn" | "vocabulary" | "progress";
 
-export type ToolMode = "pan" | "pen" | "highlighter" | "note" | "eraser";
+export type ToolMode = "pan" | "select" | "pen" | "highlighter" | "note" | "eraser";
 
 export type WorkspaceMode = "focus" | "split";
 

@@ -547,48 +547,32 @@ export async function POST(request: Request) {
   const prompt = buildPrompt(body, text, Boolean(image));
   const providerErrors: string[] = [];
 
-  const ollamaResult = await callOllama(prompt, image);
-  if (ollamaResult instanceof NextResponse) {
-    if (!shouldContinueAfterProviderError()) {
-      return ollamaResult;
-    }
-    providerErrors.push(await responseErrorMessage(ollamaResult, "Ollama request failed."));
-  }
-  if (typeof ollamaResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(ollamaResult, fallbackText, body.mode));
-  }
+  const providerQueue = image
+    ? [
+        { label: "Gemini", call: () => callGemini(prompt, image) },
+        { label: "Ollama", call: () => callOllama(prompt, image) },
+        { label: "Groq", call: () => callGroq(prompt, image) },
+        { label: "OpenAI", call: () => Promise.resolve(null) }
+      ]
+    : [
+        { label: "Groq", call: () => callGroq(prompt) },
+        { label: "Gemini", call: () => callGemini(prompt) },
+        { label: "Ollama", call: () => callOllama(prompt) },
+        { label: "OpenAI", call: () => callOpenAi(prompt) }
+      ];
 
-  const geminiResult = await callGemini(prompt, image);
-  if (geminiResult instanceof NextResponse) {
-    if (!shouldContinueAfterProviderError()) {
-      return geminiResult;
+  for (const provider of providerQueue) {
+    const result = await provider.call();
+    if (result instanceof NextResponse) {
+      if (!shouldContinueAfterProviderError()) {
+        return result;
+      }
+      providerErrors.push(await responseErrorMessage(result, `${provider.label} request failed.`));
+      continue;
     }
-    providerErrors.push(await responseErrorMessage(geminiResult, "Gemini request failed."));
-  }
-  if (typeof geminiResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(geminiResult, fallbackText, body.mode));
-  }
-
-  const groqResult = await callGroq(prompt, image);
-  if (groqResult instanceof NextResponse) {
-    if (!shouldContinueAfterProviderError()) {
-      return groqResult;
+    if (typeof result === "string") {
+      return NextResponse.json(parseJsonOrFallback(result, fallbackText, body.mode));
     }
-    providerErrors.push(await responseErrorMessage(groqResult, "Groq request failed."));
-  }
-  if (typeof groqResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(groqResult, fallbackText, body.mode));
-  }
-
-  const openAiResult = await callOpenAi(prompt);
-  if (openAiResult instanceof NextResponse) {
-    if (!shouldContinueAfterProviderError()) {
-      return openAiResult;
-    }
-    providerErrors.push(await responseErrorMessage(openAiResult, "OpenAI request failed."));
-  }
-  if (typeof openAiResult === "string") {
-    return NextResponse.json(parseJsonOrFallback(openAiResult, fallbackText, body.mode));
   }
 
   if (providerErrors.length > 0) {

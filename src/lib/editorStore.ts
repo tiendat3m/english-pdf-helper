@@ -24,6 +24,9 @@ export const initialEditorState: EditorState = {
 
 export function shortcutToTool(key: string): ToolMode | null {
   const normalized = key.toLowerCase();
+  if (normalized === "s") {
+    return "select";
+  }
   if (normalized === "p") {
     return "pen";
   }

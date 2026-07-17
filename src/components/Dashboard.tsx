@@ -1,23 +1,29 @@
 "use client";
 
 import "@/lib/browserPolyfills";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import dynamic from "next/dynamic";
 import {
   BookOpen,
   Brain,
+  CalendarDays,
+  CircleDot,
   CloudDownload,
   CloudUpload,
   Download,
   Flame,
   GraduationCap,
+  Home,
+  ListChecks,
   PanelLeftClose,
   PanelLeftOpen,
   NotebookPen,
   PenLine,
   Play,
+  RotateCcw,
   Sparkles,
   Star,
+  Target,
   TrendingUp,
   Upload
 } from "lucide-react";
@@ -102,9 +108,17 @@ type HistoryAction =
   | { type: "add"; annotations: Annotation[] }
   | { type: "delete"; annotations: Annotation[] };
 
+interface AiCacheEntry {
+  key: string;
+  result: AiResult;
+  updatedAt: string;
+}
+
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
+const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
+const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
@@ -279,6 +293,33 @@ function buildWorkspaceUrl(editor: EditorState, isWorkspaceOpen: boolean) {
   url.searchParams.set("sidebar", editor.sidebarCollapsed ? "hidden" : "open");
 
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function aiCacheKey(mode: AiMode, text: string) {
+  return `${mode}:${text.toLowerCase().replace(/\s+/g, " ").trim()}`;
+}
+
+function readAiCacheEntry(key: string): AiResult | null {
+  try {
+    const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
+    const match = entries.find((entry) => entry.key === key);
+    return match?.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAiCacheEntry(key: string, result: AiResult) {
+  try {
+    const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
+    const nextEntries = [
+      { key, result, updatedAt: nowIso() },
+      ...entries.filter((entry) => entry.key !== key)
+    ].slice(0, MAX_AI_CACHE_ENTRIES);
+    localStorage.setItem(AI_CACHE_STORAGE_KEY, JSON.stringify(nextEntries));
+  } catch {
+    // AI cache is a quota saver only; ignore storage pressure or private-mode failures.
+  }
 }
 
 async function getResponseMessage(response: Response, fallback: string) {
@@ -515,16 +556,21 @@ export default function Dashboard() {
   }
 
   async function openBook(bookId: string) {
+    await openBookAtPage(bookId);
+  }
+
+  async function openBookAtPage(bookId: string, page?: number) {
     const book = activeBooks.find((item) => item.id === bookId);
     if (!book) {
       return;
     }
+    const nextPage = Math.max(1, Math.min(page ?? book.lastPage ?? 1, book.totalPages || page || book.lastPage || 1));
     await touchBook(book, { lastOpenedAt: nowIso() });
     setEditor((current) => ({
       ...current,
       activeTab: "learn",
       activeBookId: book.id,
-      currentPage: book.lastPage || 1,
+      currentPage: nextPage,
       zoom: book.zoom || DEFAULT_ZOOM
     }));
     setIsWorkspaceOpen(true);
@@ -740,11 +786,34 @@ export default function Dashboard() {
     setData((current) => ({ ...current, bookmarks: [...current.bookmarks, bookmark] }));
   }
 
+  function applyAiResult(nextResult: AiResult) {
+    setAiResult(nextResult);
+    setVocabularyMeta({
+      ipa: nextResult.ipa,
+      partOfSpeech: nextResult.partOfSpeech,
+      meaning: nextResult.meaning || nextResult.summary,
+      vietnameseMeaning: nextResult.vietnamese,
+      synonyms: nextResult.synonyms,
+      antonyms: nextResult.antonyms,
+      example: nextResult.example
+    });
+  }
+
   async function analyzeSelection(selection: VocabularyDraft, mode: AiMode) {
     setAiMode(mode);
     setAiError(null);
     setIsAiLoading(true);
     const selectedText = selection.word === "Highlighted passage" ? "" : selection.word.trim();
+    const cacheKey = selectedText ? aiCacheKey(mode, selectedText) : "";
+
+    if (cacheKey) {
+      const cachedResult = readAiCacheEntry(cacheKey);
+      if (cachedResult) {
+        applyAiResult(cachedResult);
+        setIsAiLoading(false);
+        return;
+      }
+    }
 
     try {
       const response = await fetch("/api/ai/ielts", {
@@ -781,16 +850,10 @@ export default function Dashboard() {
         suggestedNote: payload.suggestedNote || payload.summary || ""
       };
 
-      setAiResult(nextResult);
-      setVocabularyMeta({
-        ipa: nextResult.ipa,
-        partOfSpeech: nextResult.partOfSpeech,
-        meaning: nextResult.meaning || nextResult.summary,
-        vietnameseMeaning: nextResult.vietnamese,
-        synonyms: nextResult.synonyms,
-        antonyms: nextResult.antonyms,
-        example: nextResult.example
-      });
+      applyAiResult(nextResult);
+      if (cacheKey) {
+        writeAiCacheEntry(cacheKey, nextResult);
+      }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "Could not analyze this selection.");
     } finally {
@@ -1123,11 +1186,40 @@ export default function Dashboard() {
     setEditor((current) => ({ ...current, activeTab: tab }));
   }
 
+  function goHome() {
+    setEditor((current) => ({ ...current, activeTab: "learn" }));
+    setIsWorkspaceOpen(false);
+  }
+
+  const bookById = useMemo(() => new Map(activeBooks.map((book) => [book.id, book])), [activeBooks]);
+  const sortedBooks = useMemo(
+    () =>
+      [...activeBooks].sort(
+        (a, b) => (b.lastOpenedAt || b.updatedAt || b.createdAt).localeCompare(a.lastOpenedAt || a.updatedAt || a.createdAt)
+      ),
+    [activeBooks]
+  );
+  const continueBook = activeBook ?? sortedBooks[0] ?? null;
+  const notesCount = activeData.annotations.filter((annotation) => annotation.type === "note").length;
+  const dueVocabulary = activeData.vocabulary
+    .filter((item) => item.status !== "mastered")
+    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  const masteredVocabularyCount = activeData.vocabulary.filter((item) => item.status === "mastered").length;
+  const learningVocabularyCount = activeData.vocabulary.filter((item) => item.status === "learning").length;
+  const newVocabularyCount = activeData.vocabulary.filter((item) => item.status === "new").length;
+  const reviewPages = activeData.pageStatuses
+    .filter((status) => status.status === "need-review" && bookById.has(status.bookId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 5)
+    .map((status) => ({ ...status, book: bookById.get(status.bookId)! }));
+  const learningPages = activeData.pageStatuses.filter((status) => status.status === "learning").length;
+  const recentActivities = data.activities.slice(0, 4);
+
   const stats = [
     { label: "Study streak", value: `${getStudyStreak(data.activities)} days`, icon: Flame },
     { label: "Total books", value: activeBooks.length.toString(), icon: BookOpen },
     { label: "Saved vocabulary", value: activeData.vocabulary.length.toString(), icon: Star },
-    { label: "Notes count", value: activeData.annotations.filter((annotation) => annotation.type === "note").length.toString(), icon: NotebookPen },
+    { label: "Notes count", value: notesCount.toString(), icon: NotebookPen },
     { label: "Overall progress", value: formatPercent(getOverallProgress(activeBooks)), icon: TrendingUp }
   ];
 
@@ -1138,7 +1230,7 @@ export default function Dashboard() {
   const needReviewCount = activeData.pageStatuses.filter((status) => status.status === "need-review").length;
 
   const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = activeBooks.length
-    ? activeBooks.slice(0, 3).map((book) => ({
+    ? sortedBooks.slice(0, 4).map((book) => ({
         title: book.title,
         lastPage: book.lastPage.toString(),
         progress: book.progress,
@@ -1172,8 +1264,8 @@ export default function Dashboard() {
       }`}
     >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={() => switchTab("learn")} className="flex items-center gap-3">
+        <div className="mx-auto flex w-full max-w-[1580px] flex-wrap items-center justify-between gap-3">
+          <button type="button" onClick={goHome} className="flex items-center gap-3" title="Back to Learn home">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-sage text-white shadow-tool">
               <GraduationCap className="h-5 w-5" />
             </div>
@@ -1274,86 +1366,231 @@ export default function Dashboard() {
       </header>
 
       {editor.activeTab === "learn" && !isWorkspaceOpen && (
-        <main className="mx-auto max-w-7xl p-5 md:p-8">
-          <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="flex min-h-[420px] flex-col justify-between rounded-lg border border-stone-200 bg-white p-6 shadow-paper dark:border-stone-800 dark:bg-stone-950">
+        <main className="mx-auto w-full max-w-[1580px] p-4 md:p-6 2xl:px-8">
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
+            <div className="min-w-0 rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Continue Learning</p>
-                <h1 className="mt-4 max-w-2xl text-4xl font-black leading-tight text-stone-950 dark:text-stone-50 md:text-5xl">IELTS OS</h1>
-                <div className="mt-4 rounded-lg bg-paper p-4 dark:bg-stone-900">
-                  <div className="text-xl font-black text-stone-950 dark:text-stone-50">{activeBook?.title ?? "Import your first IELTS book"}</div>
-                  <div className="mt-2 flex items-center justify-between text-sm font-semibold text-stone-500 dark:text-stone-400">
-                    <span>Last page: {activeBook?.lastPage ?? 1}</span>
-                    <span>{activeBook ? formatPercent(activeBook.progress) : "0%"}</span>
+                <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                  <div className="min-w-0">
+                    <h1 className="line-clamp-2 break-words text-2xl font-black leading-tight text-stone-950 dark:text-stone-50 md:text-3xl 2xl:text-4xl">
+                      {continueBook?.title ?? "IELTS OS"}
+                    </h1>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-stone-500 dark:text-stone-400">
+                      {continueBook
+                        ? `Page ${continueBook.lastPage}/${continueBook.totalPages || "..."} - ${formatPercent(continueBook.progress)} complete`
+                        : "Import a PDF book to start your IELTS workspace."}
+                    </p>
                   </div>
-                  <div className="mt-3 h-3 overflow-hidden rounded-full bg-white dark:bg-stone-800">
-                    <div className="h-full rounded-full bg-sage" style={{ width: activeBook ? formatPercent(activeBook.progress) : "0%" }} />
+                  <div className="flex shrink-0 flex-wrap justify-start gap-2 lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (continueBook) {
+                          void openBookAtPage(continueBook.id, continueBook.lastPage);
+                        } else {
+                          setIsWorkspaceOpen(true);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-white shadow-tool transition hover:-translate-y-0.5 dark:bg-paper dark:text-stone-950"
+                    >
+                      <Play className="h-4 w-4" />
+                      Continue
+                    </button>
+                    <PdfUploader onImport={handleImport} />
                   </div>
                 </div>
-                <div className="mt-4 rounded-lg border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-950">
+
+                <div className="mt-5 grid gap-3 md:grid-cols-3">
+                  <StudyMetric
+                    label="Today"
+                    value={`${todayDonePages}/${editor.dailyPageGoal}`}
+                    detail="pages done"
+                    icon={CalendarDays}
+                    accent="coral"
+                  />
+                  <StudyMetric
+                    label="Due Vocab"
+                    value={dueVocabulary.length.toString()}
+                    detail={`${newVocabularyCount} new, ${learningVocabularyCount} learning`}
+                    icon={Star}
+                    accent="sage"
+                  />
+                  <StudyMetric
+                    label="Review Pages"
+                    value={needReviewCount.toString()}
+                    detail={`${learningPages} still learning`}
+                    icon={RotateCcw}
+                    accent="rose"
+                  />
+                </div>
+
+                <div className="mt-5 rounded-lg border border-stone-200 bg-paper/70 p-4 dark:border-stone-800 dark:bg-stone-900/80">
                   <div className="flex items-center justify-between text-sm font-black text-stone-800 dark:text-stone-100">
-                    <span>Today goal</span>
-                    <span>{todayDonePages}/{editor.dailyPageGoal} pages done</span>
+                    <span>Today focus</span>
+                    <span>{formatPercent(dailyGoalProgress)}</span>
                   </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800">
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-stone-800">
                     <div className="h-full rounded-full bg-coral" style={{ width: `${dailyGoalProgress}%` }} />
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-300">
-                    Target IELTS {editor.targetBand.toFixed(1)} - current estimate {editor.currentBand.toFixed(1)} - {needReviewCount} pages need review
-                  </p>
+                  <div className="mt-4 grid gap-2 md:grid-cols-3">
+                    <FocusAction
+                      icon={Target}
+                      label="Read next page"
+                      detail={continueBook ? `Page ${continueBook.lastPage}` : "Import PDF"}
+                      onClick={() => (continueBook ? void openBookAtPage(continueBook.id, continueBook.lastPage) : setIsWorkspaceOpen(true))}
+                    />
+                    <FocusAction
+                      icon={ListChecks}
+                      label="Review mistakes"
+                      detail={reviewPages.length ? `${reviewPages.length} queued` : "No urgent pages"}
+                      onClick={() => {
+                        const first = reviewPages[0];
+                        if (first) {
+                          void openBookAtPage(first.bookId, first.pageNumber);
+                        }
+                      }}
+                      disabled={!reviewPages.length}
+                    />
+                    <FocusAction
+                      icon={Star}
+                      label="Vocab reps"
+                      detail={dueVocabulary.length ? `${dueVocabulary.length} due` : "Deck clear"}
+                      onClick={() => {
+                        setVocabFilter(learningVocabularyCount ? "learning" : newVocabularyCount ? "new" : "all");
+                        switchTab("vocabulary");
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (activeBook) {
-                      void openBook(activeBook.id);
-                    } else {
-                      setIsWorkspaceOpen(true);
-                    }
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-ink px-5 py-3 text-sm font-bold text-white shadow-tool transition hover:-translate-y-0.5 dark:bg-paper dark:text-stone-950"
-                >
-                  <Play className="h-4 w-4" />
-                  Continue Learning
-                </button>
-                <PdfUploader onImport={handleImport} />
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+                  <section className="rounded-lg border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-950">
+                    <div className="flex items-center gap-2 text-sm font-black text-stone-900 dark:text-stone-50">
+                      <BookOpen className="h-4 w-4 text-sage" />
+                      Recent books
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {recentBooks.map((book, index) => (
+                        <button
+                          key={`${book.title}-${index}`}
+                          type="button"
+                          onClick={() => (book.id ? void openBook(book.id) : undefined)}
+                          className="rounded-md border border-stone-200 bg-stone-50 p-3 text-left transition hover:border-sage dark:border-stone-800 dark:bg-stone-900"
+                        >
+                          <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{book.title}</div>
+                          <div className="mt-2 flex items-center justify-between text-xs font-semibold text-stone-500">
+                            <span>Page {book.lastPage}</span>
+                            <span>{formatPercent(book.progress)}</span>
+                          </div>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white dark:bg-stone-800">
+                            <div className="h-full rounded-full bg-sage" style={{ width: formatPercent(book.progress) }} />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-950">
+                    <div className="flex items-center gap-2 text-sm font-black text-stone-900 dark:text-stone-50">
+                      <CircleDot className="h-4 w-4 text-sage" />
+                      Recent activity
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {recentActivities.length ? (
+                        recentActivities.map((activity) => (
+                          <div key={activity.id} className="rounded-md bg-stone-50 p-3 text-xs leading-5 dark:bg-stone-900">
+                            <div className="font-bold text-stone-800 dark:text-stone-100">{activity.label}</div>
+                            <div className="mt-1 text-stone-500">{new Date(activity.createdAt).toLocaleDateString()}</div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm leading-6 text-stone-500 dark:text-stone-400">Your study activity will appear here.</p>
+                      )}
+                    </div>
+                  </section>
+                </div>
               </div>
             </div>
 
-            <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
-              <h2 className="text-lg font-bold text-stone-950 dark:text-stone-50">Recent Books</h2>
-              <div className="mt-4 space-y-3">
-                {recentBooks.map((book, index) => (
-                  <button
-                    key={`${book.title}-${index}`}
-                    type="button"
-                    onClick={() => (book.id ? void openBook(book.id) : undefined)}
-                    className="w-full rounded-lg border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-sage dark:border-stone-800 dark:bg-stone-900"
-                  >
-                    <div className="font-bold text-stone-900 dark:text-stone-50">{book.title}</div>
-                    <div className="mt-2 flex items-center justify-between text-sm text-stone-500">
-                      <span>Last page: {book.lastPage}</span>
-                      <span>Progress: {formatPercent(book.progress)}</span>
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white dark:bg-stone-800">
-                      <div className="h-full rounded-full bg-sage" style={{ width: formatPercent(book.progress) }} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-5 rounded-lg bg-skysoft/55 p-4 dark:bg-sage/15">
-                <div className="text-sm font-black text-stone-900 dark:text-stone-50">IELTS OS Stack</div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-stone-600 dark:text-stone-300">
-                  <span>PDF Books</span>
-                  <span>Handwriting</span>
-                  <span>Vocabulary</span>
-                  <span>Progress</span>
-                  <span>Warm Paper</span>
-                  <span>XP-Pen / Huion</span>
+            <div className="grid min-w-0 gap-5">
+              <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Review Queue</p>
+                    <h2 className="mt-2 text-lg font-black leading-tight text-stone-950 dark:text-stone-50 2xl:text-xl">Mistakes & weak pages</h2>
+                  </div>
+                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-200">
+                    <RotateCcw className="h-5 w-5" />
+                  </div>
                 </div>
-              </div>
+                <div className="mt-4 space-y-2">
+                  {reviewPages.length ? (
+                    reviewPages.map((page) => (
+                      <button
+                        key={page.id}
+                        type="button"
+                        onClick={() => void openBookAtPage(page.bookId, page.pageNumber)}
+                        className="flex w-full items-center justify-between gap-3 rounded-md border border-rose-100 bg-rose-50/70 p-3 text-left transition hover:border-rose-300 dark:border-rose-900 dark:bg-rose-950/30"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{page.book.title}</div>
+                          <div className="mt-1 text-xs font-semibold text-rose-700 dark:text-rose-200">Page {page.pageNumber} needs review</div>
+                        </div>
+                        <Play className="h-4 w-4 shrink-0 text-rose-600" />
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                      No weak pages queued right now.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Vocabulary Deck</p>
+                    <h2 className="mt-2 text-lg font-black leading-tight text-stone-950 dark:text-stone-50 2xl:text-xl">Review words</h2>
+                  </div>
+                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-100">
+                    <Star className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <MiniStat label="New" value={newVocabularyCount} />
+                  <MiniStat label="Learning" value={learningVocabularyCount} />
+                  <MiniStat label="Mastered" value={masteredVocabularyCount} />
+                </div>
+                <div className="mt-4 space-y-2">
+                  {dueVocabulary.slice(0, 5).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setVocabSearch(item.word);
+                        setVocabFilter("all");
+                        switchTab("vocabulary");
+                      }}
+                      className="flex w-full items-center justify-between gap-3 rounded-md bg-stone-50 p-3 text-left transition hover:bg-skysoft/60 dark:bg-stone-900 dark:hover:bg-stone-800"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{item.word}</div>
+                        <div className="mt-1 line-clamp-1 text-xs text-stone-500">{item.vietnameseMeaning || item.meaning || "Meaning pending"}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black capitalize text-sage dark:bg-stone-950">
+                        {item.status}
+                      </span>
+                    </button>
+                  ))}
+                  {!dueVocabulary.length && (
+                    <div className="rounded-md border border-emerald-100 bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                      Deck clear. Add more words from highlights.
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           </section>
 
@@ -1409,6 +1646,15 @@ export default function Dashboard() {
                     className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
                   >
                     {editor.sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    title="Back to Learn home"
+                    onClick={goHome}
+                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-xs font-black text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                  >
+                    <Home className="h-4 w-4" />
+                    Home
                   </button>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
@@ -1540,6 +1786,7 @@ export default function Dashboard() {
                   pageStatuses={data.pageStatuses}
                   onAddQuickNote={handleAddQuickNote}
                   onJumpToPage={changePage}
+                  onSetPageStatus={handleSetPageStatus}
                 />
               )}
             </div>
@@ -1805,6 +2052,77 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StudyMetric({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  accent
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: ComponentType<{ className?: string }>;
+  accent: "sage" | "coral" | "rose";
+}) {
+  const accentClass = {
+    sage: "bg-sage/12 text-sage",
+    coral: "bg-coral/12 text-coral",
+    rose: "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-200"
+  }[accent];
+
+  return (
+    <div className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-950">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+        <div className={`grid h-8 w-8 place-items-center rounded-md ${accentClass}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mt-3 text-2xl font-black text-stone-950 dark:text-stone-50">{value}</div>
+      <div className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">{detail}</div>
+    </div>
+  );
+}
+
+function FocusAction({
+  icon: Icon,
+  label,
+  detail,
+  onClick,
+  disabled = false
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  detail: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="group rounded-md border border-stone-200 bg-white p-3 text-left shadow-sm transition hover:border-sage hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-800 dark:bg-stone-950 dark:hover:bg-stone-900"
+    >
+      <div className="flex items-center gap-2 text-sm font-black text-stone-900 dark:text-stone-50">
+        <Icon className="h-4 w-4 text-sage" />
+        {label}
+      </div>
+      <div className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">{detail}</div>
+    </button>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-stone-200 bg-stone-50 p-3 text-center dark:border-stone-800 dark:bg-stone-900">
+      <div className="text-xl font-black text-stone-950 dark:text-stone-50">{value}</div>
+      <div className="mt-1 text-[10px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
     </div>
   );
 }

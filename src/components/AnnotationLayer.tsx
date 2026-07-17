@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Line, Rect, Stage } from "react-konva";
 import { v4 as uuid } from "uuid";
 import { HIGHLIGHT_COLORS, PEN_COLORS } from "@/lib/constants";
@@ -68,6 +68,9 @@ const ERASER_CURSOR =
 const NOTE_CURSOR =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M6 5h14l3 3v15H6V5z' fill='%23fde68a' stroke='%231f2933' stroke-width='1.4' stroke-linejoin='round'/%3E%3Cpath d='M20 5v4h4M14 11v7M10.5 14.5h7' stroke='%231f2933' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E\") 14 14, copy";
 
+const SELECT_CURSOR =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M7 4l13 11-7 1.2L9.6 23 7 4z' fill='white' stroke='%231f2933' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E\") 7 4, crosshair";
+
 function svgCursor(svg: string, x: number, y: number, fallback: string) {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, ${fallback}`;
 }
@@ -92,6 +95,8 @@ function highlighterCursor(color: string) {
 
 function cursorForTool(tool: ToolMode, penColor: StrokeColor, highlighterColor: HighlightColor) {
   switch (tool) {
+    case "select":
+      return SELECT_CURSOR;
     case "pen":
       return penCursor(PEN_COLORS[penColor]);
     case "highlighter":
@@ -126,6 +131,8 @@ export default function AnnotationLayer({
 }: AnnotationLayerProps) {
   const [draft, setDraft] = useState<Point[]>([]);
   const [highlightDraft, setHighlightDraft] = useState<{ start: Point; end: Point } | null>(null);
+  const [selectionDraft, setSelectionDraft] = useState<{ start: Point; end: Point } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const activePointerId = useRef<number | null>(null);
@@ -134,6 +141,11 @@ export default function AnnotationLayer({
     () => annotations.filter((annotation) => annotation.bookId === bookId && annotation.pageNumber === pageNumber),
     [annotations, bookId, pageNumber]
   );
+
+  useEffect(() => {
+    setSelectionDraft(null);
+    setSelectedIds([]);
+  }, [bookId, pageNumber, tool]);
 
   function shouldIgnorePointer(event: PointerEvent) {
     return inputMode === "stylus" && event.pointerType !== "pen";
@@ -220,6 +232,43 @@ export default function AnnotationLayer({
     const top = Math.min(...points.map((point) => point.y));
     const right = Math.max(...points.map((point) => point.x));
     const bottom = Math.max(...points.map((point) => point.y));
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+
+  function annotationBox(annotation: Annotation): NormalizedRect | null {
+    if (annotation.type === "highlight") {
+      return annotation.rect;
+    }
+    if (annotation.type === "note") {
+      return {
+        x: annotation.x,
+        y: annotation.y,
+        width: Math.min(1, 150 / Math.max(pageSize.width, 1)),
+        height: Math.min(1, 110 / Math.max(pageSize.height, 1))
+      };
+    }
+    return strokeBox(annotation.points);
+  }
+
+  function selectionBounds(ids: string[]) {
+    const boxes = pageAnnotations
+      .filter((annotation) => ids.includes(annotation.id))
+      .map(annotationBox)
+      .filter((box): box is NormalizedRect => Boolean(box));
+
+    if (!boxes.length) {
+      return null;
+    }
+
+    const left = Math.min(...boxes.map((box) => box.x));
+    const top = Math.min(...boxes.map((box) => box.y));
+    const right = Math.max(...boxes.map((box) => box.x + box.width));
+    const bottom = Math.max(...boxes.map((box) => box.y + box.height));
     return {
       x: left,
       y: top,
@@ -497,6 +546,12 @@ export default function AnnotationLayer({
       return;
     }
 
+    if (tool === "select") {
+      setSelectionDraft({ start: point, end: point });
+      setSelectedIds([]);
+      return;
+    }
+
     if (tool === "eraser") {
       const match = [...pageAnnotations].reverse().find((annotation) => {
         if (annotation.type === "note") {
@@ -561,6 +616,15 @@ export default function AnnotationLayer({
       return;
     }
 
+    if (tool === "select" && selectionDraft) {
+      const points = getStagePoints(event);
+      const point = points[points.length - 1] ?? getStagePoint(event);
+      if (point) {
+        setSelectionDraft((current) => (current ? { ...current, end: point } : current));
+      }
+      return;
+    }
+
     if (!draft.length || tool !== "pen") {
       return;
     }
@@ -573,6 +637,25 @@ export default function AnnotationLayer({
 
   function commitDraft(event?: StagePointerEvent) {
     releasePointer(event?.evt);
+
+    if (tool === "select" && selectionDraft) {
+      const rect = normalizeRect(selectionDraft.start, selectionDraft.end);
+      setSelectionDraft(null);
+
+      if (rect.width < 0.004 || rect.height < 0.004) {
+        setSelectedIds([]);
+        return;
+      }
+
+      const selected = pageAnnotations
+        .filter((annotation) => {
+          const box = annotationBox(annotation);
+          return Boolean(box && rectsOverlap(rect, box));
+        })
+        .map((annotation) => annotation.id);
+      setSelectedIds(selected);
+      return;
+    }
 
     if (tool === "highlighter" && highlightDraft) {
       const rect = normalizeRect(highlightDraft.start, highlightDraft.end);
@@ -644,6 +727,7 @@ export default function AnnotationLayer({
   }
 
   const drawingCursor = tool === "pan" ? "pointer-events-none" : "";
+  const selectedBounds = selectionBounds(selectedIds);
 
   return (
     <div
@@ -712,6 +796,41 @@ export default function AnnotationLayer({
               />
             );
           })}
+          {selectedIds.map((id) => {
+            const annotation = pageAnnotations.find((item) => item.id === id);
+            const box = annotation ? annotationBox(annotation) : null;
+            if (!box) {
+              return null;
+            }
+            return (
+              <Rect
+                key={`selected-${id}`}
+                x={box.x * pageSize.width}
+                y={box.y * pageSize.height}
+                width={box.width * pageSize.width}
+                height={box.height * pageSize.height}
+                stroke="#2563eb"
+                strokeWidth={1.5}
+                dash={[6, 4]}
+                fill="#93c5fd"
+                opacity={0.22}
+                listening={false}
+              />
+            );
+          })}
+          {selectionDraft && (
+            <Rect
+              x={Math.min(selectionDraft.start.x, selectionDraft.end.x) * pageSize.width}
+              y={Math.min(selectionDraft.start.y, selectionDraft.end.y) * pageSize.height}
+              width={Math.abs(selectionDraft.start.x - selectionDraft.end.x) * pageSize.width}
+              height={Math.abs(selectionDraft.start.y - selectionDraft.end.y) * pageSize.height}
+              fill="#93c5fd"
+              opacity={0.14}
+              stroke="#2563eb"
+              strokeWidth={1.5}
+              dash={[7, 4]}
+            />
+          )}
           {highlightDraft && (
             <Rect
               x={Math.min(highlightDraft.start.x, highlightDraft.end.x) * pageSize.width}
@@ -737,6 +856,38 @@ export default function AnnotationLayer({
           )}
         </Layer>
       </Stage>
+
+      {tool === "select" && selectedBounds && selectedIds.length > 0 && (
+        <div
+          className="absolute z-40 flex items-center gap-2 rounded-lg border border-stone-200 bg-white/95 p-2 text-xs font-bold text-stone-700 shadow-paper backdrop-blur dark:border-stone-700 dark:bg-stone-950/95 dark:text-stone-100"
+          style={{
+            left: Math.min(selectedBounds.x * pageSize.width, pageSize.width - 260),
+            top: Math.max(8, selectedBounds.y * pageSize.height - 46)
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <span className="rounded-md bg-skysoft px-2 py-1 text-stone-900 dark:bg-sage/20 dark:text-stone-100">
+            {selectedIds.length} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              selectedIds.forEach((id) => onDeleteAnnotation(id));
+              setSelectedIds([]);
+            }}
+            className="rounded-md bg-rose-600 px-2.5 py-1.5 text-white transition hover:bg-rose-700"
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds([])}
+            className="rounded-md border border-stone-200 px-2.5 py-1.5 text-stone-600 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:text-stone-200"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {pageAnnotations
         .filter((annotation): annotation is StickyNoteAnnotation => annotation.type === "note")
