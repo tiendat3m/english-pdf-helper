@@ -278,9 +278,7 @@ export default function StudyWorkspacePanel({
         <div className="mt-3 space-y-2">
           {pageNotes.length ? (
             pageNotes.map((note) => (
-              <div key={note.id} className="rounded-md bg-white/85 p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
-                {note.text}
-              </div>
+              <NotebookNoteCard key={note.id} note={note} />
             ))
           ) : (
             <p className="text-xs leading-5 text-stone-600 dark:text-amber-100">Notes saved on this page will collect here.</p>
@@ -434,6 +432,47 @@ function StatTile({ label, value }: { label: string; value: number }) {
     <div className="rounded-md border border-stone-200 bg-white/90 p-2 text-center shadow-sm dark:border-stone-800 dark:bg-stone-900">
       <div className="text-lg font-black text-stone-950 dark:text-stone-50">{value}</div>
       <div className="mt-0.5 text-[10px] font-black uppercase text-stone-500 dark:text-stone-400">{label}</div>
+    </div>
+  );
+}
+
+function NotebookNoteCard({ note }: { note: StickyNoteAnnotation }) {
+  const [showAnswer, setShowAnswer] = useState(false);
+  const lines = note.text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const question = lines.find((line) => line.toLowerCase().startsWith("question:"))?.replace(/^question:\s*/i, "");
+  const answerIndex = lines.findIndex((line) => line.toLowerCase().startsWith("answer:"));
+  const answerLines = answerIndex >= 0 ? lines.slice(answerIndex) : [];
+  const beforeAnswer = answerIndex >= 0 ? lines.slice(0, answerIndex) : lines;
+  const isSolution = Boolean(question && answerLines.length);
+
+  if (!isSolution) {
+    return (
+      <div className="whitespace-pre-wrap rounded-md bg-white/85 p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
+        {note.text}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md bg-white/85 p-2 text-xs leading-5 text-stone-700 dark:bg-stone-900 dark:text-stone-200">
+      <div className="font-black text-stone-900 dark:text-stone-50">{question}</div>
+      {beforeAnswer.slice(1).map((line) => (
+        <div key={line} className="mt-1 text-stone-500 dark:text-stone-400">
+          {line}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => setShowAnswer((current) => !current)}
+        className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-stone-700 transition hover:border-sage hover:text-sage dark:border-amber-800 dark:bg-stone-950"
+      >
+        {showAnswer ? "Hide answer" : "Show answer"}
+      </button>
+      {showAnswer && (
+        <div className="mt-2 whitespace-pre-wrap rounded-md bg-skysoft/70 p-2 text-stone-800 dark:bg-sage/20 dark:text-stone-100">
+          {answerLines.join("\n")}
+        </div>
+      )}
     </div>
   );
 }

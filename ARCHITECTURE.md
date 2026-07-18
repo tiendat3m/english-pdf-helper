@@ -43,11 +43,15 @@ Highlighter mode creates normalized rectangle annotations instead of freehand st
 
 ## IELTS OS Workspace
 
-The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. Split adds `StudyWorkspacePanel`, which shows a page notebook, searchable book notes, Markdown notebook export, book vocabulary, and page map beside the PDF, inspired by MarginNote and LiquidText. The home dashboard also has a daily study session modal that groups reading, weak-page review, and due vocabulary into one short checklist.
+The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. Split adds `StudyWorkspacePanel`, which shows a page notebook, searchable book notes, Markdown notebook export, book vocabulary, and page map beside the PDF, inspired by MarginNote and LiquidText. AI solution notes are saved in a recall-friendly format with hidden answer blocks, so learners can retry an exercise before revealing the explanation. The home dashboard also has a daily study session modal that groups reading, weak-page review, and due vocabulary into one short checklist.
 
 ## Vocabulary Review
 
-`VocabularyPanel` supports a review deck and an editable table. The table edits fields inline and persists changes to IndexedDB. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`.
+`VocabularyPanel` supports a review deck and an editable table. The table edits fields inline and persists changes to IndexedDB. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`. Vocabulary can also be exported/imported as CSV for spreadsheet cleanup or Anki-style migration.
+
+## Progress Review Queues
+
+`ProgressPanel` aggregates weak pages and due vocabulary into clickable review queues. Opening a weak page returns to the PDF workspace at that page; opening a due word jumps to the vocabulary tab with that word searched.
 
 ## Persistence Flow
 

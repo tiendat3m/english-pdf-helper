@@ -1,20 +1,37 @@
 "use client";
 
-import { BarChart3, BookOpen, Flame, NotebookPen, Star, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, Flame, NotebookPen, Play, RotateCcw, Star, TrendingUp } from "lucide-react";
 import type { AppData } from "@/lib/types";
 import { countDonePagesToday, countStudiedPages, estimateBand, formatPercent, getOverallProgress, getStudyStreak } from "@/lib/utils";
 
 interface ProgressPanelProps {
   data: AppData;
+  onOpenPage: (bookId: string, pageNumber: number) => void;
+  onOpenVocabulary: (word: string) => void;
 }
 
-export default function ProgressPanel({ data }: ProgressPanelProps) {
+function isDue(dueAt?: string) {
+  return !dueAt || new Date(dueAt).getTime() <= Date.now();
+}
+
+export default function ProgressPanel({ data, onOpenPage, onOpenVocabulary }: ProgressPanelProps) {
   const overallProgress = getOverallProgress(data.books);
   const masteredVocabulary = data.vocabulary.filter((item) => item.status === "mastered").length;
   const notesCount = data.annotations.filter((annotation) => annotation.type === "note").length;
   const currentBand = estimateBand(overallProgress, masteredVocabulary, notesCount);
   const todayDonePages = countDonePagesToday(data.pageStatuses);
   const needReviewPages = data.pageStatuses.filter((status) => status.status === "need-review").length;
+  const bookById = new Map(data.books.map((book) => [book.id, book]));
+  const weakPages = data.pageStatuses
+    .filter((status) => status.status === "need-review" && bookById.has(status.bookId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 8)
+    .map((status) => ({ ...status, book: bookById.get(status.bookId)! }));
+  const dueVocabulary = data.vocabulary
+    .filter((item) => item.status !== "mastered" || isDue(item.dueAt))
+    .filter((item) => isDue(item.dueAt))
+    .sort((a, b) => (a.dueAt ?? a.updatedAt).localeCompare(b.dueAt ?? b.updatedAt))
+    .slice(0, 8);
 
   const stats = [
     { label: "Study streak", value: `${getStudyStreak(data.activities)} days`, icon: Flame },
@@ -81,6 +98,74 @@ export default function ProgressPanel({ data }: ProgressPanelProps) {
             );
           })}
         </div>
+
+        <section className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-stone-950 dark:text-stone-50">
+                <RotateCcw className="h-5 w-5 text-rose-600" />
+                Weak pages
+              </h2>
+              <span className="text-sm font-semibold text-stone-500">{weakPages.length} queued</span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {weakPages.length ? (
+                weakPages.map((page) => (
+                  <button
+                    key={page.id}
+                    type="button"
+                    onClick={() => onOpenPage(page.bookId, page.pageNumber)}
+                    className="flex w-full items-center justify-between gap-3 rounded-md border border-rose-100 bg-rose-50/70 p-3 text-left transition hover:border-rose-300 dark:border-rose-900 dark:bg-rose-950/30"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{page.book.title}</div>
+                      <div className="mt-1 text-xs font-semibold text-rose-700 dark:text-rose-200">Page {page.pageNumber}</div>
+                    </div>
+                    <Play className="h-4 w-4 shrink-0 text-rose-600" />
+                  </button>
+                ))
+              ) : (
+                <p className="rounded-md bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  No weak pages right now.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-stone-950 dark:text-stone-50">
+                <Star className="h-5 w-5 text-sage" />
+                Due vocabulary
+              </h2>
+              <span className="text-sm font-semibold text-stone-500">{dueVocabulary.length} due</span>
+            </div>
+            <div className="mt-4 space-y-2">
+              {dueVocabulary.length ? (
+                dueVocabulary.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onOpenVocabulary(item.word)}
+                    className="flex w-full items-center justify-between gap-3 rounded-md bg-stone-50 p-3 text-left transition hover:bg-skysoft/60 dark:bg-stone-900 dark:hover:bg-stone-800"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{item.word}</div>
+                      <div className="mt-1 line-clamp-1 text-xs font-semibold text-stone-500">{item.vietnameseMeaning || item.meaning || "Meaning pending"}</div>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black capitalize text-sage dark:bg-stone-950">
+                      {item.status}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="rounded-md bg-emerald-50 p-4 text-sm font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  Vocabulary deck is clear.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
           <div className="flex items-center justify-between">

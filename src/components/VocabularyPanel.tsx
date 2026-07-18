@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, CheckCircle2, Eye, EyeOff, Layers3, Plus, RotateCcw, Search, Sparkles, Trash2, Volume2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Download, Eye, EyeOff, Layers3, Plus, RotateCcw, Search, Sparkles, Trash2, Upload, Volume2 } from "lucide-react";
 import type { ComponentType } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { VocabularyRecord, VocabStatus } from "@/lib/types";
@@ -17,6 +17,8 @@ interface VocabularyPanelProps {
   onUpdate: (record: VocabularyRecord) => void;
   onDelete: (id: string) => void;
   onAddWord: (word: string) => void;
+  onExportCsv: () => void;
+  onImportCsv: (file: File) => void;
 }
 
 const statuses: Array<VocabStatus | "all"> = ["all", "new", "learning", "mastered"];
@@ -78,7 +80,9 @@ export default function VocabularyPanel({
   onStatusChange,
   onUpdate,
   onDelete,
-  onAddWord
+  onAddWord,
+  onExportCsv,
+  onImportCsv
 }: VocabularyPanelProps) {
   const [isAddingWord, setIsAddingWord] = useState(false);
   const [newWord, setNewWord] = useState("");
@@ -236,6 +240,30 @@ export default function VocabularyPanel({
               <Plus className="h-4 w-4" />
               Add word
             </button>
+            <button
+              type="button"
+              onClick={onExportCsv}
+              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+            >
+              <Download className="h-4 w-4" />
+              CSV
+            </button>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
+              <Upload className="h-4 w-4" />
+              Import
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    onImportCsv(file);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
             <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               {(["review", "table"] as const).map((mode) => (
                 <button

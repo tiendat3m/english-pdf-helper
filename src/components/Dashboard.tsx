@@ -168,6 +168,57 @@ interface CloudBackupManifest {
   createdAt: string;
 }
 
+function csvEscape(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function parseCsvRows(text: string) {
+  const rows: string[][] = [];
+  let current = "";
+  let row: string[] = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      row.push(current);
+      current = "";
+      continue;
+    }
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") {
+        index += 1;
+      }
+      row.push(current);
+      if (row.some((cell) => cell.trim())) {
+        rows.push(row);
+      }
+      row = [];
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  row.push(current);
+  if (row.some((cell) => cell.trim())) {
+    rows.push(row);
+  }
+  return rows;
+}
+
 type WorkspaceSession = Partial<
   Pick<EditorState, "activeTab" | "activeBookId" | "currentPage" | "zoom" | "workspaceMode" | "sidebarCollapsed">
 > & {
@@ -1025,9 +1076,21 @@ export default function Dashboard() {
       return;
     }
 
+    const noteBody =
+      aiMode === "solve"
+        ? [
+            `Question: ${aiSelection.word}`,
+            `Answer: ${aiResult?.title || aiResult?.summary || aiResult?.suggestedNote || "AI solution"}`,
+            aiResult?.grammar ? `Reason: ${aiResult.grammar}` : "",
+            aiResult?.suggestedNote && aiResult.suggestedNote !== aiResult.summary ? aiResult.suggestedNote : ""
+          ]
+        : [
+            aiResult?.title || "AI note",
+            aiResult?.suggestedNote || aiResult?.summary || aiSelection.word
+          ];
+
     const text = [
-      aiResult?.title || "AI note",
-      aiResult?.suggestedNote || aiResult?.summary || aiSelection.word,
+      ...noteBody,
       aiResult?.usage ? `Usage: ${aiResult.usage}` : "",
       aiResult?.collocations ? `Collocations: ${aiResult.collocations}` : "",
       aiResult?.commonMistake ? `Common mistake: ${aiResult.commonMistake}` : "",
@@ -1087,6 +1150,79 @@ export default function Dashboard() {
       ...current,
       vocabulary: current.vocabulary.map((item) => (item.id === record.id ? next : item))
     }));
+  }
+
+  function handleVocabularyCsvExport() {
+    const headers = [
+      "word",
+      "ipa",
+      "partOfSpeech",
+      "meaning",
+      "vietnameseMeaning",
+      "synonyms",
+      "antonyms",
+      "example",
+      "status",
+      "sourceBookTitle",
+      "sourcePage",
+      "dueAt",
+      "reviewCount"
+    ];
+    const rows = activeData.vocabulary.map((item) =>
+      headers.map((header) => csvEscape(item[header as keyof VocabularyRecord])).join(",")
+    );
+    const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ielts-vocabulary-${nowIso().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleVocabularyCsvImport(file: File) {
+    const rows = parseCsvRows(await file.text());
+    const [headers = [], ...bodyRows] = rows;
+    const headerMap = new Map(headers.map((header, index) => [header.trim(), index]));
+    const getCell = (row: string[], header: string) => row[headerMap.get(header) ?? -1]?.trim() ?? "";
+    const imported = bodyRows
+      .map((row): VocabularyRecord | null => {
+        const word = getCell(row, "word");
+        if (!word) {
+          return null;
+        }
+        const status = getCell(row, "status") as VocabStatus;
+        const now = nowIso();
+        return {
+          id: uuid(),
+          word,
+          ipa: getCell(row, "ipa"),
+          partOfSpeech: getCell(row, "partOfSpeech"),
+          meaning: getCell(row, "meaning"),
+          vietnameseMeaning: getCell(row, "vietnameseMeaning"),
+          synonyms: getCell(row, "synonyms"),
+          antonyms: getCell(row, "antonyms"),
+          example: getCell(row, "example"),
+          sourceBookId: activeBook?.id ?? MANUAL_VOCABULARY_SOURCE_ID,
+          sourceBookTitle: getCell(row, "sourceBookTitle") || activeBook?.title || "Imported vocabulary",
+          sourcePage: Number(getCell(row, "sourcePage")) || (activeBook ? editor.currentPage : 0),
+          status: status === "learning" || status === "mastered" ? status : "new",
+          dueAt: getCell(row, "dueAt") || now,
+          reviewCount: Number(getCell(row, "reviewCount")) || 0,
+          ease: 2.1,
+          createdAt: now,
+          updatedAt: now
+        };
+      })
+      .filter((record): record is VocabularyRecord => Boolean(record));
+
+    if (!imported.length) {
+      return;
+    }
+    await Promise.all(imported.map((record) => saveVocabulary(record)));
+    setData((current) => ({ ...current, vocabulary: [...imported, ...current.vocabulary] }));
   }
 
   async function handleVocabularyDelete(id: string) {
@@ -1996,10 +2132,21 @@ export default function Dashboard() {
           onUpdate={handleVocabularyUpdate}
           onDelete={handleVocabularyDelete}
           onAddWord={handleManualVocabularyAdd}
+          onExportCsv={handleVocabularyCsvExport}
+          onImportCsv={handleVocabularyCsvImport}
         />
       )}
 
-      {editor.activeTab === "progress" && <ProgressPanel data={activeData} />}
+      {editor.activeTab === "progress" && (
+        <ProgressPanel
+          data={activeData}
+          onOpenPage={(bookId, pageNumber) => void openBookAtPage(bookId, pageNumber)}
+          onOpenVocabulary={(word) => {
+            setVocabSearch(word);
+            switchTab("vocabulary");
+          }}
+        />
+      )}
 
       {dailySessionOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
