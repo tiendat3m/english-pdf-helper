@@ -136,6 +136,10 @@ export interface VocabularyRecord {
   sourceBookTitle: string;
   sourcePage: number;
   status: VocabStatus;
+  dueAt?: string;
+  lastReviewedAt?: string;
+  reviewCount?: number;
+  ease?: number;
   createdAt: string;
   updatedAt: string;
 }

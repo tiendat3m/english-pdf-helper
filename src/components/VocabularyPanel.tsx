@@ -47,6 +47,25 @@ function normalizeWord(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
+function isDue(record: VocabularyRecord) {
+  if (!record.dueAt) {
+    return record.status !== "mastered";
+  }
+  return new Date(record.dueAt).getTime() <= Date.now();
+}
+
+function nextDueLabel(record: VocabularyRecord) {
+  if (!record.dueAt) {
+    return record.status === "mastered" ? "not scheduled" : "due now";
+  }
+  const dueTime = new Date(record.dueAt).getTime();
+  const diffDays = Math.ceil((dueTime - Date.now()) / (24 * 60 * 60 * 1000));
+  if (diffDays <= 0) {
+    return "due now";
+  }
+  return `due in ${diffDays} day${diffDays === 1 ? "" : "s"}`;
+}
+
 export default function VocabularyPanel({
   vocabulary,
   search,
@@ -85,7 +104,7 @@ export default function VocabularyPanel({
     [filter, search, sort, vocabulary]
   );
 
-  const dueCards = visible.filter((item) => item.status !== "mastered");
+  const dueCards = visible.filter(isDue);
   const currentCard = dueCards.length ? dueCards[reviewIndex % dueCards.length] : visible[0] ?? null;
   const counts = {
     new: vocabulary.filter((item) => item.status === "new").length,
@@ -259,13 +278,16 @@ export default function VocabularyPanel({
                 <div className="min-h-[460px]">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-black capitalize ${statusStyles[currentCard.status]}`}>
-                          {currentCard.status}
-                        </span>
-                        <span className="text-xs font-bold text-stone-500 dark:text-stone-400">
-                          {currentCard.sourcePage > 0 ? `${currentCard.sourceBookTitle} - page ${currentCard.sourcePage}` : "Manual word"}
-                        </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-black capitalize ${statusStyles[currentCard.status]}`}>
+                        {currentCard.status}
+                      </span>
+                      <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-black text-stone-500 dark:bg-stone-900 dark:text-stone-300">
+                        {nextDueLabel(currentCard)}
+                      </span>
+                      <span className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                        {currentCard.sourcePage > 0 ? `${currentCard.sourceBookTitle} - page ${currentCard.sourcePage}` : "Manual word"}
+                      </span>
                       </div>
                       <h2 className="mt-5 text-4xl font-black text-stone-950 dark:text-stone-50">{currentCard.word}</h2>
                       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -399,6 +421,7 @@ export default function VocabularyPanel({
                     <div className="text-xs text-stone-500 dark:text-stone-400">
                       <div className="font-semibold">{item.sourceBookTitle}</div>
                       <div>{item.sourcePage > 0 ? `Page ${item.sourcePage}` : "Manual"}</div>
+                      <div>{nextDueLabel(item)}</div>
                     </div>
                     <select
                       value={item.status}

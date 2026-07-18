@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
+type AiProvider = "auto" | "groq" | "gemini" | "ollama" | "openai";
 
 interface AiRequestBody {
   mode: AiMode;
@@ -8,6 +9,8 @@ interface AiRequestBody {
   imageDataUrl?: string;
   sourceBookTitle?: string;
   sourcePage?: number;
+  provider?: AiProvider;
+  providerOrder?: AiProvider[];
 }
 
 const modeLabels: Record<AiMode, string> = {
@@ -20,6 +23,10 @@ const modeLabels: Record<AiMode, string> = {
 
 function isAiMode(value: unknown): value is AiMode {
   return value === "vocab" || value === "explain" || value === "grammar" || value === "note" || value === "solve";
+}
+
+function isAiProvider(value: unknown): value is AiProvider {
+  return value === "auto" || value === "groq" || value === "gemini" || value === "ollama" || value === "openai";
 }
 
 function extractOpenAiOutputText(response: unknown) {
@@ -215,17 +222,17 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
-function configuredProvider() {
-  return process.env.AI_PROVIDER?.toLowerCase() ?? "auto";
+function configuredProvider(providerOverride?: AiProvider) {
+  return providerOverride ?? (process.env.AI_PROVIDER?.toLowerCase() as AiProvider | undefined) ?? "auto";
 }
 
-function shouldTryProvider(providerName: string) {
-  const provider = configuredProvider();
+function shouldTryProvider(providerName: string, providerOverride?: AiProvider) {
+  const provider = configuredProvider(providerOverride);
   return !provider || provider === "auto" || provider === providerName;
 }
 
-function shouldContinueAfterProviderError() {
-  return configuredProvider() === "auto";
+function shouldContinueAfterProviderError(providerOverride?: AiProvider) {
+  return configuredProvider(providerOverride) === "auto";
 }
 
 async function responseErrorMessage(response: Response, fallback: string) {
@@ -284,11 +291,11 @@ function getOllamaErrorMessage(payload: unknown) {
   }
 }
 
-async function callOllama(prompt: string, image?: { mimeType: string; data: string } | null) {
+async function callOllama(prompt: string, image?: { mimeType: string; data: string } | null, providerOverride?: AiProvider) {
   const hasOllamaConfig = Boolean(
-    process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || configuredProvider() === "ollama"
+    process.env.OLLAMA_BASE_URL || process.env.OLLAMA_MODEL || process.env.OLLAMA_API_KEY || configuredProvider(providerOverride) === "ollama"
   );
-  if (!shouldTryProvider("ollama")) {
+  if (!shouldTryProvider("ollama", providerOverride)) {
     return null;
   }
   if (!hasOllamaConfig) {
@@ -365,8 +372,8 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
   return extractOllamaOutputText(payload);
 }
 
-async function callGemini(prompt: string, image?: { mimeType: string; data: string } | null) {
-  if (!shouldTryProvider("gemini")) {
+async function callGemini(prompt: string, image?: { mimeType: string; data: string } | null, providerOverride?: AiProvider) {
+  if (!shouldTryProvider("gemini", providerOverride)) {
     return null;
   }
 
@@ -424,8 +431,8 @@ function groqEndpoint(path: string) {
   return `${baseUrl}${path}`;
 }
 
-async function callGroq(prompt: string, image?: { mimeType: string; data: string } | null) {
-  if (!shouldTryProvider("groq")) {
+async function callGroq(prompt: string, image?: { mimeType: string; data: string } | null, providerOverride?: AiProvider) {
+  if (!shouldTryProvider("groq", providerOverride)) {
     return null;
   }
 
@@ -435,7 +442,7 @@ async function callGroq(prompt: string, image?: { mimeType: string; data: string
   }
 
   if (image) {
-    if (configuredProvider() === "groq") {
+    if (configuredProvider(providerOverride) === "groq") {
       return NextResponse.json(
         { error: "Groq is configured for text-only AI in this app. Use OCR/PDF text, or configure Gemini/Ollama vision for image selections.", provider: "groq" },
         { status: 400 }
@@ -489,8 +496,8 @@ async function callGroq(prompt: string, image?: { mimeType: string; data: string
   return extractOpenAiCompatibleChatText(payload);
 }
 
-async function callOpenAi(prompt: string) {
-  if (!shouldTryProvider("openai")) {
+async function callOpenAi(prompt: string, providerOverride?: AiProvider) {
+  if (!shouldTryProvider("openai", providerOverride)) {
     return null;
   }
 
@@ -539,6 +546,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid AI mode." }, { status: 400 });
   }
 
+  const providerOverride = isAiProvider(body.provider) ? body.provider : undefined;
+
   if (!text && !image) {
     return NextResponse.json({ error: "Text or image selection is required." }, { status: 400 });
   }
@@ -546,28 +555,34 @@ export async function POST(request: Request) {
   const fallbackText = text || "Selected image";
   const prompt = buildPrompt(body, text, Boolean(image));
   const providerErrors: string[] = [];
+  const defaultTextProviderOrder: AiProvider[] = ["groq", "gemini", "ollama", "openai"];
+  const defaultImageProviderOrder: AiProvider[] = ["gemini", "ollama", "groq", "openai"];
+  const requestedOrder = (body.providerOrder ?? []).filter((provider): provider is AiProvider => isAiProvider(provider) && provider !== "auto");
+  const providerOrder = [
+    ...requestedOrder,
+    ...(image ? defaultImageProviderOrder : defaultTextProviderOrder)
+  ].filter((provider, index, all) => all.indexOf(provider) === index);
 
-  const providerQueue = image
-    ? [
-        { label: "Gemini", call: () => callGemini(prompt, image) },
-        { label: "Ollama", call: () => callOllama(prompt, image) },
-        { label: "Groq", call: () => callGroq(prompt, image) },
-        { label: "OpenAI", call: () => Promise.resolve(null) }
-      ]
-    : [
-        { label: "Groq", call: () => callGroq(prompt) },
-        { label: "Gemini", call: () => callGemini(prompt) },
-        { label: "Ollama", call: () => callOllama(prompt) },
-        { label: "OpenAI", call: () => callOpenAi(prompt) }
-      ];
+  const providerCall = (provider: AiProvider) => {
+    if (provider === "groq") {
+      return image ? callGroq(prompt, image, providerOverride) : callGroq(prompt, undefined, providerOverride);
+    }
+    if (provider === "gemini") {
+      return image ? callGemini(prompt, image, providerOverride) : callGemini(prompt, undefined, providerOverride);
+    }
+    if (provider === "ollama") {
+      return image ? callOllama(prompt, image, providerOverride) : callOllama(prompt, undefined, providerOverride);
+    }
+    return image ? Promise.resolve(null) : callOpenAi(prompt, providerOverride);
+  };
 
-  for (const provider of providerQueue) {
-    const result = await provider.call();
+  for (const provider of providerOrder) {
+    const result = await providerCall(provider);
     if (result instanceof NextResponse) {
-      if (!shouldContinueAfterProviderError()) {
+      if (!shouldContinueAfterProviderError(providerOverride)) {
         return result;
       }
-      providerErrors.push(await responseErrorMessage(result, `${provider.label} request failed.`));
+      providerErrors.push(await responseErrorMessage(result, `${provider} request failed.`));
       continue;
     }
     if (typeof result === "string") {

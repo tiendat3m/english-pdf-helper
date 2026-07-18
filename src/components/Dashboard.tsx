@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Home,
   ListChecks,
+  Settings2,
   PanelLeftClose,
   PanelLeftOpen,
   NotebookPen,
@@ -86,6 +87,12 @@ type VocabularyDraft = Omit<
 };
 
 type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
+type AiProvider = "auto" | "groq" | "gemini" | "ollama" | "openai";
+
+interface AiSettings {
+  provider: AiProvider;
+  providerOrder: AiProvider[];
+}
 
 interface AiResult {
   title: string;
@@ -118,10 +125,22 @@ const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
+const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
+const DEFAULT_AI_SETTINGS: AiSettings = {
+  provider: "auto",
+  providerOrder: ["groq", "gemini", "ollama", "openai"]
+};
+const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
+  auto: "Auto",
+  groq: "Groq",
+  gemini: "Gemini",
+  ollama: "Ollama",
+  openai: "OpenAI"
+};
 
 interface CloudUploadUrlsResponse {
   partUrls: string[];
@@ -322,6 +341,58 @@ function writeAiCacheEntry(key: string, result: AiResult) {
   }
 }
 
+function readAiSettings(): AiSettings {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AI_SETTINGS_STORAGE_KEY) ?? "null") as Partial<AiSettings> | null;
+    const provider = parsed?.provider && parsed.provider in AI_PROVIDER_LABELS ? parsed.provider : DEFAULT_AI_SETTINGS.provider;
+    const providerOrder = (parsed?.providerOrder ?? []).filter(
+      (item): item is AiProvider => item !== "auto" && item in AI_PROVIDER_LABELS
+    );
+    return {
+      provider,
+      providerOrder: [
+        ...providerOrder,
+        ...DEFAULT_AI_SETTINGS.providerOrder
+      ].filter((item, index, all) => all.indexOf(item) === index)
+    };
+  } catch {
+    return DEFAULT_AI_SETTINGS;
+  }
+}
+
+function writeAiSettings(settings: AiSettings) {
+  localStorage.setItem(AI_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function addDaysIso(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+function isVocabularyDue(record: VocabularyRecord) {
+  if (!record.dueAt) {
+    return record.status !== "mastered";
+  }
+  return new Date(record.dueAt).getTime() <= Date.now();
+}
+
+function scheduleVocabularyReview(record: VocabularyRecord, status: VocabStatus): VocabularyRecord {
+  const reviewCount = (record.reviewCount ?? 0) + 1;
+  const ease = Math.max(1.3, Math.min(3, (record.ease ?? 2.1) + (status === "mastered" ? 0.15 : status === "learning" ? 0 : -0.2)));
+  const intervalDays = status === "new" ? 0 : status === "learning" ? Math.min(3, reviewCount) : Math.max(7, Math.round(7 * ease + reviewCount));
+
+  return {
+    ...record,
+    status,
+    dueAt: addDaysIso(intervalDays),
+    lastReviewedAt: nowIso(),
+    reviewCount,
+    ease,
+    updatedAt: nowIso()
+  };
+}
+
 async function getResponseMessage(response: Response, fallback: string) {
   try {
     const payload = (await response.json()) as { message?: string; error?: string };
@@ -356,6 +427,11 @@ export default function Dashboard() {
   const [aiResult, setAiResult] = useState<AiResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+  const [aiTestStatus, setAiTestStatus] = useState<string | null>(null);
+  const [dailySessionOpen, setDailySessionOpen] = useState(false);
+  const [completedSessionTasks, setCompletedSessionTasks] = useState<string[]>([]);
   const [vocabularyMeta, setVocabularyMeta] = useState({
     ipa: "",
     partOfSpeech: "",
@@ -376,6 +452,14 @@ export default function Dashboard() {
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    setAiSettings(readAiSettings());
+  }, []);
+
+  useEffect(() => {
+    writeAiSettings(aiSettings);
+  }, [aiSettings]);
 
   useEffect(() => {
     const urlSession = readWorkspaceSessionFromUrl();
@@ -835,7 +919,9 @@ export default function Dashboard() {
           text: selectedText,
           imageDataUrl: selectedText ? undefined : selection.selectedImageDataUrl,
           sourceBookTitle: selection.sourceBookTitle,
-          sourcePage: selection.sourcePage
+          sourcePage: selection.sourcePage,
+          provider: aiSettings.provider,
+          providerOrder: aiSettings.providerOrder
         })
       });
 
@@ -880,6 +966,29 @@ export default function Dashboard() {
     await analyzeSelection(aiSelection, mode);
   }
 
+  async function handleAiProviderTest() {
+    setAiTestStatus("Testing provider route...");
+    try {
+      const response = await fetch("/api/ai/ielts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "explain",
+          text: "substantial improvement",
+          provider: aiSettings.provider,
+          providerOrder: aiSettings.providerOrder
+        })
+      });
+      const payload = (await response.json()) as { title?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "AI provider test failed.");
+      }
+      setAiTestStatus(`OK: ${payload.title || "AI response received"}`);
+    } catch (error) {
+      setAiTestStatus(error instanceof Error ? error.message : "AI provider test failed.");
+    }
+  }
+
   async function handleVocabularySave() {
     if (!aiSelection) {
       return;
@@ -897,6 +1006,9 @@ export default function Dashboard() {
       antonyms: vocabularyMeta.antonyms || aiResult?.antonyms || "",
       example: vocabularyMeta.example || aiResult?.example || "",
       status: "new",
+      dueAt: nowIso(),
+      reviewCount: 0,
+      ease: 2.1,
       createdAt: nowIso(),
       updatedAt: nowIso()
     };
@@ -960,7 +1072,7 @@ export default function Dashboard() {
   }
 
   async function handleVocabularyStatus(record: VocabularyRecord, status: VocabStatus) {
-    const next = { ...record, status, updatedAt: nowIso() };
+    const next = scheduleVocabularyReview(record, status);
     await saveVocabulary(next);
     setData((current) => ({
       ...current,
@@ -1213,8 +1325,8 @@ export default function Dashboard() {
   const continueBook = activeBook ?? sortedBooks[0] ?? null;
   const notesCount = activeData.annotations.filter((annotation) => annotation.type === "note").length;
   const dueVocabulary = activeData.vocabulary
-    .filter((item) => item.status !== "mastered")
-    .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+    .filter(isVocabularyDue)
+    .sort((a, b) => (a.dueAt ?? a.updatedAt).localeCompare(b.dueAt ?? b.updatedAt));
   const masteredVocabularyCount = activeData.vocabulary.filter((item) => item.status === "mastered").length;
   const learningVocabularyCount = activeData.vocabulary.filter((item) => item.status === "learning").length;
   const newVocabularyCount = activeData.vocabulary.filter((item) => item.status === "new").length;
@@ -1239,6 +1351,42 @@ export default function Dashboard() {
   ).length;
   const dailyGoalProgress = Math.min(100, (todayDonePages / Math.max(editor.dailyPageGoal, 1)) * 100);
   const needReviewCount = activeData.pageStatuses.filter((status) => status.status === "need-review").length;
+  const sessionTasks = [
+    {
+      id: "read-next",
+      label: "Read next page",
+      detail: continueBook ? `${continueBook.title} - page ${continueBook.lastPage}` : "Import a PDF first",
+      actionLabel: "Open page",
+      disabled: !continueBook,
+      onAction: () => (continueBook ? void openBookAtPage(continueBook.id, continueBook.lastPage) : setIsWorkspaceOpen(true))
+    },
+    {
+      id: "review-pages",
+      label: "Review weak page",
+      detail: reviewPages.length ? `${reviewPages[0].book.title} - page ${reviewPages[0].pageNumber}` : "No weak pages queued",
+      actionLabel: "Review",
+      disabled: !reviewPages.length,
+      onAction: () => {
+        const first = reviewPages[0];
+        if (first) {
+          void openBookAtPage(first.bookId, first.pageNumber);
+        }
+      }
+    },
+    {
+      id: "vocab-reps",
+      label: "Do vocab reps",
+      detail: dueVocabulary.length ? `${dueVocabulary.length} words due now` : "Vocabulary deck is clear",
+      actionLabel: "Review deck",
+      disabled: !dueVocabulary.length,
+      onAction: () => {
+        setVocabFilter("all");
+        switchTab("vocabulary");
+      }
+    }
+  ];
+  const completedSessionCount = completedSessionTasks.length;
+  const isDailySessionComplete = completedSessionCount >= sessionTasks.length;
 
   const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = activeBooks.length
     ? sortedBooks.slice(0, 4).map((book) => ({
@@ -1354,6 +1502,15 @@ export default function Dashboard() {
                 }}
               />
             </div>
+            <button
+              type="button"
+              title="AI provider settings"
+              onClick={() => setIsAiSettingsOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              AI: {AI_PROVIDER_LABELS[aiSettings.provider]}
+            </button>
             <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               {(["light", "warm", "dark"] as const).map((theme) => (
                 <button
@@ -1394,6 +1551,17 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-start gap-2 lg:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCompletedSessionTasks([]);
+                        setDailySessionOpen(true);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg border border-sage/40 bg-skysoft px-4 py-2.5 text-sm font-black text-stone-900 shadow-tool transition hover:-translate-y-0.5 dark:bg-sage/20 dark:text-stone-50"
+                    >
+                      <ListChecks className="h-4 w-4" />
+                      Start session
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -1823,6 +1991,212 @@ export default function Dashboard() {
 
       {editor.activeTab === "progress" && <ProgressPanel data={activeData} />}
 
+      {dailySessionOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-paper dark:bg-stone-950">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sage">
+                  <ListChecks className="h-4 w-4" />
+                  Daily study session
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">
+                  {isDailySessionComplete ? "Session complete" : "Today IELTS flow"}
+                </h2>
+                <p className="mt-1 text-sm font-semibold text-stone-500 dark:text-stone-400">
+                  {completedSessionCount}/{sessionTasks.length} tasks done - {dueVocabulary.length} vocab due - {needReviewCount} weak pages
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDailySessionOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-bold text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800">
+              <div className="h-full rounded-full bg-sage" style={{ width: `${(completedSessionCount / sessionTasks.length) * 100}%` }} />
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              {sessionTasks.map((task) => {
+                const isDone = completedSessionTasks.includes(task.id);
+                return (
+                  <div
+                    key={task.id}
+                    className={`rounded-lg border p-4 transition ${
+                      isDone
+                        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40"
+                        : "border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-stone-900"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-black text-stone-950 dark:text-stone-50">{task.label}</div>
+                        <div className="mt-1 truncate text-xs font-semibold text-stone-500 dark:text-stone-400">{task.detail}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={task.disabled}
+                          onClick={task.onAction}
+                          className="rounded-md border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-700 transition hover:border-sage hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
+                        >
+                          {task.actionLabel}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCompletedSessionTasks((current) =>
+                              current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id]
+                            )
+                          }
+                          className={`rounded-md px-3 py-2 text-xs font-black transition ${
+                            isDone ? "bg-emerald-600 text-white" : "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                          }`}
+                        >
+                          {isDone ? "Done" : "Mark done"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {isDailySessionComplete && (
+              <div className="mt-5 rounded-lg border border-sage/30 bg-skysoft/70 p-4 text-sm leading-6 text-stone-800 dark:bg-sage/20 dark:text-stone-100">
+                Nice. Today you touched reading, weak-page review, and vocabulary. Keep the streak alive by marking finished pages as Done in the Study Board.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isAiSettingsOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-lg bg-white p-5 shadow-paper dark:bg-stone-950">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-sage">
+                  <Settings2 className="h-4 w-4" />
+                  AI configuration
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50">Provider fallback</h2>
+                <p className="mt-1 text-sm font-semibold text-stone-500 dark:text-stone-400">
+                  Auto tries providers in order; direct mode locks to one provider.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiSettingsOpen(false)}
+                className="rounded-md px-3 py-2 text-sm font-bold text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-sm font-black text-stone-800 dark:text-stone-100">Mode</div>
+              <div className="mt-2 grid grid-cols-5 gap-2">
+                {(Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((provider) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    onClick={() => setAiSettings((current) => ({ ...current, provider }))}
+                    className={`rounded-md border px-2 py-2 text-xs font-black transition ${
+                      aiSettings.provider === provider
+                        ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-50"
+                        : "border-stone-200 bg-white text-stone-500 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900"
+                    }`}
+                  >
+                    {AI_PROVIDER_LABELS[provider]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="text-sm font-black text-stone-800 dark:text-stone-100">Auto fallback order</div>
+              <div className="mt-2 space-y-2">
+                {aiSettings.providerOrder.map((provider, index) => (
+                  <div
+                    key={provider}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900"
+                  >
+                    <div className="text-sm font-black text-stone-900 dark:text-stone-50">
+                      {index + 1}. {AI_PROVIDER_LABELS[provider]}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() =>
+                          setAiSettings((current) => {
+                            const next = [...current.providerOrder];
+                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            return { ...current, providerOrder: next };
+                          })
+                        }
+                        className="rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-black text-stone-500 disabled:opacity-40 dark:border-stone-700 dark:bg-stone-950"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === aiSettings.providerOrder.length - 1}
+                        onClick={() =>
+                          setAiSettings((current) => {
+                            const next = [...current.providerOrder];
+                            [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                            return { ...current, providerOrder: next };
+                          })
+                        }
+                        className="rounded-md border border-stone-200 bg-white px-2 py-1 text-xs font-black text-stone-500 disabled:opacity-40 dark:border-stone-700 dark:bg-stone-950"
+                      >
+                        Down
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {aiTestStatus && (
+              <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm font-semibold text-stone-700 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200">
+                {aiTestStatus}
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAiSettings(DEFAULT_AI_SETTINGS)}
+                className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-bold text-stone-700 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAiProviderTest()}
+                className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-bold text-stone-700 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              >
+                Test
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAiSettingsOpen(false)}
+                className="rounded-lg bg-ink px-4 py-2 text-sm font-bold text-white dark:bg-paper dark:text-stone-950"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {aiSelection && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-stone-950/35 p-4 backdrop-blur-sm">
           <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-paper dark:bg-stone-950">
@@ -1840,6 +2214,9 @@ export default function Dashboard() {
                 )}
                 <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
                   {aiSelection.sourceBookTitle} - page {aiSelection.sourcePage}
+                </p>
+                <p className="mt-1 text-xs font-black text-sage">
+                  Provider: {AI_PROVIDER_LABELS[aiSettings.provider]} - order {aiSettings.providerOrder.map((provider) => AI_PROVIDER_LABELS[provider]).join(" > ")}
                 </p>
               </div>
               <button
@@ -2051,7 +2428,7 @@ export default function Dashboard() {
                 onClick={handleSaveAiNote}
                 className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-bold text-stone-700 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
               >
-                Save Sticky Note
+                {aiMode === "solve" ? "Save Solution Note" : "Save Sticky Note"}
               </button>
               <button
                 type="button"
