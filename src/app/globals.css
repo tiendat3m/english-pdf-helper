@@ -17,6 +17,36 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(111, 142, 125, 0.55) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(111, 142, 125, 0.45);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(111, 142, 125, 0.7);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+textarea::-webkit-scrollbar,
+.react-pdf__Page__textContent::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
 html,
@@ -45,6 +75,16 @@ body {
     radial-gradient(circle at top left, rgba(108, 143, 125, 0.24), transparent 30rem),
     linear-gradient(135deg, #1e201d 0%, #171a1f 100%);
   color: #f7f0e4;
+}
+
+.dark * {
+  scrollbar-color: rgba(188, 204, 194, 0.45) transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: rgba(188, 204, 194, 0.38);
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
 
 .theme-warm .bg-white,

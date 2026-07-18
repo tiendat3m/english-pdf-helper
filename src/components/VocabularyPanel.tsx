@@ -86,7 +86,7 @@ export default function VocabularyPanel({
 }: VocabularyPanelProps) {
   const [isAddingWord, setIsAddingWord] = useState(false);
   const [newWord, setNewWord] = useState("");
-  const [viewMode, setViewMode] = useState<"review" | "table">("review");
+  const [viewMode, setViewMode] = useState<"review" | "manage">("manage");
   const [quizMode, setQuizMode] = useState<"meaning" | "vietnamese" | "example" | "spelling">("meaning");
   const [reviewIndex, setReviewIndex] = useState(0);
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
@@ -277,7 +277,7 @@ export default function VocabularyPanel({
               />
             </label>
             <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-              {(["review", "table"] as const).map((mode) => (
+              {(["manage", "review"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -288,7 +288,7 @@ export default function VocabularyPanel({
                       : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
                   }`}
                 >
-                  {mode}
+                  {mode === "manage" ? "Manage" : "Review"}
                 </button>
               ))}
             </div>
@@ -461,7 +461,7 @@ export default function VocabularyPanel({
           </section>
         )}
 
-        {viewMode === "table" && (
+        {viewMode === "manage" && (
           <section className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
             <div className="min-w-0 rounded-lg border border-stone-200 bg-white shadow-paper dark:border-stone-800 dark:bg-stone-950">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 p-4 dark:border-stone-800">
