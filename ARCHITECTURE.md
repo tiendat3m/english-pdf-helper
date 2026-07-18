@@ -47,7 +47,7 @@ The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. S
 
 ## Vocabulary Review
 
-`VocabularyPanel` supports a review deck and an editable table. The table edits fields inline and persists changes to IndexedDB. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`. Vocabulary can also be exported/imported as CSV for spreadsheet cleanup or Anki-style migration.
+`VocabularyPanel` supports a review deck and a word-bank/detail-editor layout. The word bank stays compact for scanning many words, while the detail panel edits the full card and persists changes to IndexedDB. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`. Vocabulary can also be exported/imported as CSV for spreadsheet cleanup or Anki-style migration.
 
 ## Progress Review Queues
 

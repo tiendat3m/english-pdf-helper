@@ -1,7 +1,7 @@
 "use client";
 
 import { BookOpen, CheckCircle2, Download, Eye, EyeOff, Layers3, Plus, RotateCcw, Search, Sparkles, Trash2, Upload, Volume2 } from "lucide-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { VocabularyRecord, VocabStatus } from "@/lib/types";
 
@@ -90,6 +90,7 @@ export default function VocabularyPanel({
   const [quizMode, setQuizMode] = useState<"meaning" | "vietnamese" | "example" | "spelling">("meaning");
   const [reviewIndex, setReviewIndex] = useState(0);
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
   const visible = useMemo(
     () =>
@@ -113,11 +114,22 @@ export default function VocabularyPanel({
 
   const dueCards = visible.filter(isDue);
   const currentCard = dueCards.length ? dueCards[reviewIndex % dueCards.length] : visible[0] ?? null;
+  const selectedRecord = visible.find((item) => item.id === selectedRecordId) ?? visible[0] ?? null;
   const counts = {
     new: vocabulary.filter((item) => item.status === "new").length,
     learning: vocabulary.filter((item) => item.status === "learning").length,
     mastered: vocabulary.filter((item) => item.status === "mastered").length
   };
+
+  useEffect(() => {
+    if (!visible.length) {
+      setSelectedRecordId(null);
+      return;
+    }
+    if (!selectedRecordId || !visible.some((item) => item.id === selectedRecordId)) {
+      setSelectedRecordId(visible[0].id);
+    }
+  }, [selectedRecordId, visible]);
 
   function submitNewWord() {
     const word = normalizeWord(newWord);
@@ -450,80 +462,198 @@ export default function VocabularyPanel({
         )}
 
         {viewMode === "table" && (
-          <div className="mt-6 overflow-x-auto rounded-lg border border-stone-200 bg-white shadow-paper dark:border-stone-800 dark:bg-stone-950">
-            <div className="min-w-[1480px]">
-              <div className="grid grid-cols-[1fr_0.65fr_0.7fr_1.2fr_1.05fr_0.9fr_0.9fr_1.15fr_1fr_0.75fr_44px] gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-stone-500 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400">
-                <span>Word</span>
-                <span>IPA</span>
-                <span>Part</span>
-                <span>Meaning</span>
-                <span>Vietnamese</span>
-                <span>Synonyms</span>
-                <span>Antonyms</span>
-                <span>Example</span>
-                <span>Source</span>
-                <span>Status</span>
-                <span />
+          <section className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_430px]">
+            <div className="min-w-0 rounded-lg border border-stone-200 bg-white shadow-paper dark:border-stone-800 dark:bg-stone-950">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 p-4 dark:border-stone-800">
+                <div>
+                  <h2 className="text-lg font-black text-stone-950 dark:text-stone-50">Word bank</h2>
+                  <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
+                    {visible.length} visible - click a word to edit the full card.
+                  </p>
+                </div>
+                <span className="rounded-full bg-skysoft px-3 py-1 text-xs font-black text-stone-700 dark:bg-sage/20 dark:text-stone-100">
+                  {filter === "all" ? "All status" : filter}
+                </span>
               </div>
-              {visible.length ? (
-                visible.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid grid-cols-[1fr_0.65fr_0.7fr_1.2fr_1.05fr_0.9fr_0.9fr_1.15fr_1fr_0.75fr_44px] gap-3 border-b border-stone-100 px-4 py-4 text-sm last:border-b-0 dark:border-stone-800"
-                  >
-                    <div className="flex items-start gap-2">
-                      <button
-                        type="button"
-                        title={`Pronounce ${item.word}`}
-                        onClick={() => speakWord(item.word)}
-                        className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md text-sage transition hover:bg-skysoft/70 dark:hover:bg-stone-800"
-                      >
-                        <Volume2 className="h-4 w-4" />
-                      </button>
+
+              <div className="divide-y divide-stone-100 dark:divide-stone-800">
+                {visible.length ? (
+                  visible.map((item) => (
+                    <div
+                      key={item.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedRecordId(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedRecordId(item.id);
+                        }
+                      }}
+                      className={`grid cursor-pointer gap-3 px-4 py-3 transition hover:bg-skysoft/45 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_160px] ${
+                        selectedRecord?.id === item.id ? "bg-skysoft/70 dark:bg-sage/15" : ""
+                      }`}
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <button
+                          type="button"
+                          title={`Pronounce ${item.word}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            speakWord(item.word);
+                          }}
+                          className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md text-sage transition hover:bg-white dark:hover:bg-stone-900"
+                        >
+                          <Volume2 className="h-4 w-4" />
+                        </button>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-black text-stone-950 dark:text-stone-50">{item.word}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold text-stone-500">
+                            {item.ipa && <span className="text-sage">{item.ipa}</span>}
+                            {item.partOfSpeech && <span className="capitalize">{item.partOfSpeech}</span>}
+                            <span>{nextDueLabel(item)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="line-clamp-2 text-sm leading-5 text-stone-700 dark:text-stone-200">
+                          {item.vietnameseMeaning || item.meaning || "Meaning pending"}
+                        </div>
+                        <div className="mt-1 line-clamp-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
+                          {item.example || item.synonyms || item.sourceBookTitle}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 md:justify-end">
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black capitalize ${statusStyles[item.status]}`}>
+                          {item.status}
+                        </span>
+                        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-stone-500 dark:bg-stone-900">
+                          p. {item.sourcePage || "-"}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-10 text-center text-sm text-stone-500 dark:text-stone-400">
+                    Select text in a PDF to start building your IELTS vocabulary deck.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <aside className="rounded-lg border border-stone-200 bg-white p-4 shadow-paper dark:border-stone-800 dark:bg-stone-950 xl:sticky xl:top-24 xl:self-start">
+              {selectedRecord ? (
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Selected card</p>
                       <EditableField
-                        value={item.word}
-                        onCommit={(value) => updateField(item, "word", value)}
-                        className="min-w-0 font-bold text-stone-950 dark:text-stone-50"
+                        value={selectedRecord.word}
+                        onCommit={(value) => updateField(selectedRecord, "word", value)}
+                        className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50"
                       />
                     </div>
-                    <EditableField value={item.ipa || ""} placeholder="Add IPA" onCommit={(value) => updateField(item, "ipa", value)} className="text-xs font-semibold leading-5 text-sage" />
-                    <EditableField value={item.partOfSpeech || ""} placeholder="-" onCommit={(value) => updateField(item, "partOfSpeech", value)} className="text-xs font-bold capitalize leading-5 text-stone-600 dark:text-stone-300" />
-                    <EditableArea value={item.meaning || ""} placeholder="Add English meaning" onCommit={(value) => updateField(item, "meaning", value)} />
-                    <EditableArea value={item.vietnameseMeaning || ""} placeholder="Add Vietnamese meaning" onCommit={(value) => updateField(item, "vietnameseMeaning", value)} />
-                    <EditableArea value={item.synonyms || ""} placeholder="-" onCommit={(value) => updateField(item, "synonyms", value)} small />
-                    <EditableArea value={item.antonyms || ""} placeholder="-" onCommit={(value) => updateField(item, "antonyms", value)} small />
-                    <EditableArea value={item.example || ""} placeholder="Add your own sentence" onCommit={(value) => updateField(item, "example", value)} />
-                    <div className="text-xs text-stone-500 dark:text-stone-400">
-                      <div className="font-semibold">{item.sourceBookTitle}</div>
-                      <div>{item.sourcePage > 0 ? `Page ${item.sourcePage}` : "Manual"}</div>
-                      <div>{nextDueLabel(item)}</div>
+                    <button
+                      type="button"
+                      title={`Pronounce ${selectedRecord.word}`}
+                      onClick={() => speakWord(selectedRecord.word)}
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-stone-200 text-sage transition hover:border-sage dark:border-stone-700"
+                    >
+                      <Volume2 className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <DetailField label="IPA">
+                      <EditableField
+                        value={selectedRecord.ipa || ""}
+                        placeholder="/word/"
+                        onCommit={(value) => updateField(selectedRecord, "ipa", value)}
+                        className="text-sm font-semibold text-sage"
+                      />
+                    </DetailField>
+                    <DetailField label="Part">
+                      <EditableField
+                        value={selectedRecord.partOfSpeech || ""}
+                        placeholder="noun, phrase..."
+                        onCommit={(value) => updateField(selectedRecord, "partOfSpeech", value)}
+                        className="text-sm font-semibold capitalize text-stone-700 dark:text-stone-200"
+                      />
+                    </DetailField>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <DetailField label="English meaning">
+                      <EditableArea value={selectedRecord.meaning || ""} placeholder="Add English meaning" onCommit={(value) => updateField(selectedRecord, "meaning", value)} />
+                    </DetailField>
+                    <DetailField label="Vietnamese">
+                      <EditableArea value={selectedRecord.vietnameseMeaning || ""} placeholder="Add Vietnamese meaning" onCommit={(value) => updateField(selectedRecord, "vietnameseMeaning", value)} />
+                    </DetailField>
+                    <div className="grid grid-cols-2 gap-3">
+                      <DetailField label="Synonyms">
+                        <EditableArea value={selectedRecord.synonyms || ""} placeholder="similar words" onCommit={(value) => updateField(selectedRecord, "synonyms", value)} small />
+                      </DetailField>
+                      <DetailField label="Antonyms">
+                        <EditableArea value={selectedRecord.antonyms || ""} placeholder="opposites" onCommit={(value) => updateField(selectedRecord, "antonyms", value)} small />
+                      </DetailField>
                     </div>
+                    <DetailField label="Example">
+                      <EditableArea value={selectedRecord.example || ""} placeholder="Add IELTS example sentence" onCommit={(value) => updateField(selectedRecord, "example", value)} />
+                    </DetailField>
+                  </div>
+
+                  <div className="mt-4 rounded-lg bg-paper p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">
+                    <div className="font-black text-stone-900 dark:text-stone-50">{selectedRecord.sourceBookTitle}</div>
+                    <div>Page {selectedRecord.sourcePage || "Manual"} - {nextDueLabel(selectedRecord)}</div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                     <select
-                      value={item.status}
-                      onChange={(event) => onStatusChange(item, event.target.value as VocabStatus)}
-                      className="h-9 rounded-md border border-stone-200 bg-white px-2 text-xs font-bold capitalize dark:border-stone-700 dark:bg-stone-900"
+                      value={selectedRecord.status}
+                      onChange={(event) => onStatusChange(selectedRecord, event.target.value as VocabStatus)}
+                      className="h-10 rounded-md border border-stone-200 bg-white px-3 text-xs font-bold capitalize dark:border-stone-700 dark:bg-stone-900"
                     >
                       <option value="new">new</option>
                       <option value="learning">learning</option>
                       <option value="mastered">mastered</option>
                     </select>
-                    <button
-                      type="button"
-                      title="Delete vocabulary"
-                      onClick={() => onDelete(item.id)}
-                      className="grid h-9 w-9 place-items-center rounded-md text-stone-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = dueCards.length ? dueCards : visible;
+                          setReviewIndex(Math.max(0, target.findIndex((candidate) => candidate.id === selectedRecord.id)));
+                          setIsAnswerVisible(false);
+                          setViewMode("review");
+                        }}
+                        className="rounded-lg bg-ink px-3 py-2 text-xs font-black text-white dark:bg-paper dark:text-stone-950"
+                      >
+                        Review
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete vocabulary"
+                        onClick={() => onDelete(selectedRecord.id)}
+                        className="grid h-9 w-9 place-items-center rounded-md text-stone-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                ))
+                </div>
               ) : (
-                <div className="p-10 text-center text-sm text-stone-500 dark:text-stone-400">
-                  Select text in a PDF to start building your IELTS vocabulary deck.
+                <div className="grid min-h-80 place-items-center text-center">
+                  <div>
+                    <BookOpen className="mx-auto h-10 w-10 text-sage" />
+                    <h2 className="mt-4 text-xl font-black text-stone-950 dark:text-stone-50">No card selected</h2>
+                    <p className="mt-2 text-sm text-stone-500 dark:text-stone-400">Choose a word from the bank to edit it.</p>
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
+            </aside>
+          </section>
         )}
       </div>
     </main>
@@ -585,6 +715,15 @@ function EditableArea({
         small ? "h-20 text-xs text-stone-600 dark:text-stone-300" : "h-24 text-sm text-stone-700 dark:text-stone-200"
       }`}
     />
+  );
+}
+
+function DetailField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900">
+      <div className="text-[11px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+      <div className="mt-2">{children}</div>
+    </label>
   );
 }
 
