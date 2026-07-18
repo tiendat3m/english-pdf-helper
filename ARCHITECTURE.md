@@ -18,7 +18,7 @@ IELTS PDF Notes is a Next.js App Router application with a browser-first learnin
 - `Annotation`: stroke or sticky note records, keyed by book and page.
 - `BookmarkRecord`: category and page.
 - `PageStatusRecord`: page learning state.
-- `VocabularyRecord`: word, IPA, English meaning, Vietnamese meaning, example, source book/page, review status, and optional spaced-repetition fields (`dueAt`, `lastReviewedAt`, `reviewCount`, `ease`).
+- `VocabularyRecord`: word, IPA, part of speech, English meaning, Vietnamese meaning, synonyms/antonyms, IELTS topic metadata (`topic`, `subtopic`, `tags`, `difficulty`), example, source book/page, review status, and optional spaced-repetition fields (`dueAt`, `lastReviewedAt`, `reviewCount`, `ease`).
 - `StudyActivity`: recent activity timeline.
 
 ## PDF Rendering
@@ -47,7 +47,7 @@ The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. S
 
 ## Vocabulary Review
 
-`VocabularyPanel` supports Review and Manage modes. Manage uses a compact word-bank/detail-editor layout instead of a wide spreadsheet table, so learners can scan many words while editing the selected full card. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`. Vocabulary can also be exported/imported as CSV for spreadsheet cleanup or Anki-style migration.
+`VocabularyPanel` supports Review and Manage modes. Manage uses a compact word-bank/detail-editor layout instead of a wide spreadsheet table, so learners can scan many words while editing the selected full card. Topic chips filter the deck by IELTS theme, and the word bank uses incremental "Load more" batches instead of hard pagination so search/filter context stays intact. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`. Vocabulary can also be exported/imported as CSV for spreadsheet cleanup or Anki-style migration, including topic, subtopic, tags, and band difficulty fields.
 
 ## Progress Review Queues
 
@@ -79,7 +79,7 @@ Use a long, hard-to-guess sync code because this MVP does not have user accounts
 
 `src/app/api/ai/ielts/route.ts` is a server-only Next route that can run in `AI_PROVIDER=auto` mode. In auto mode it tries configured text providers in the request order chosen in the app's AI settings, defaulting to Groq, Gemini, Ollama, then OpenAI. Image selections default to Gemini, Ollama, Groq, then OpenAI because Groq is text-only in this app. The route continues to the next provider when one hits quota/rate limits or returns an error. It supports local Ollama and Ollama cloud at `https://ollama.com/api`, Gemini's generateContent API, Groq's OpenAI-compatible chat completions endpoint, and OpenAI Responses. The browser sends selected PDF text, OCR text from scanned highlights, or a cropped highlight image when no text was recovered, plus an action mode; the route returns compact JSON for vocabulary, explanation, grammar, exercise solving, or sticky-note creation. Image selections require a vision-capable provider/model, such as an Ollama model configured through `OLLAMA_VISION_MODEL` (`gemma4` is Ollama's documented vision example) or Gemini. If no vision model is configured, scanned/image-only selections fail fast with a clear setup message instead of being sent to the text model. Handwritten answers still depend on a future OCR/vision pass.
 
-The browser never receives provider API keys. Set `OLLAMA_MODEL`, `GEMINI_MODEL`, or `OPENAI_MODEL` to change models without code changes.
+The browser never receives provider API keys. Set `OLLAMA_MODEL`, `GEMINI_MODEL`, or `OPENAI_MODEL` to change models without code changes. AI vocabulary responses also include topic/subtopic/tags/difficulty metadata so new highlighted or manually added words can be grouped by IELTS theme.
 
 ## SSR Boundaries
 

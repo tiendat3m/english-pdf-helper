@@ -129,6 +129,10 @@ function fallbackJson(text: string, mode: AiMode) {
     meaning: "",
     synonyms: "",
     antonyms: "",
+    topic: "",
+    subtopic: "",
+    tags: [],
+    difficulty: "",
     usage: "",
     collocations: "",
     commonMistake: "",
@@ -162,7 +166,7 @@ function buildPrompt(body: AiRequestBody, text: string, hasImage: boolean) {
 
   return `You are an IELTS Band 8 study coach.
 Return only valid compact JSON with these keys:
-title, summary, ipa, partOfSpeech, meaning, synonyms, antonyms, usage, collocations, commonMistake, example, grammar, vietnamese, suggestedNote.
+title, summary, ipa, partOfSpeech, meaning, synonyms, antonyms, topic, subtopic, tags, difficulty, usage, collocations, commonMistake, example, grammar, vietnamese, suggestedNote.
 
 Mode: ${body.mode} (${modeLabels[body.mode]})
 Source: ${source || "unknown"}
@@ -185,6 +189,10 @@ Rules:
 - partOfSpeech should be short, e.g. noun, verb, adjective, adverb, phrase, phrasal verb, collocation.
 - synonyms should be 2-4 close IELTS-useful alternatives separated by commas; use an empty string if none fit.
 - antonyms should be 1-3 useful opposites separated by commas; use an empty string if none fit.
+- topic should be one broad IELTS theme, e.g. Education, Work, Technology, Environment, Health, Media, Society, Travel, Culture, People, Grammar, or General.
+- subtopic should be a narrower learning bucket, e.g. University, Work routines, Stative verbs, News media, Climate change.
+- tags should be an array of 2-5 concise lowercase strings for filtering and review.
+- difficulty should be one of "band-5", "band-6", "band-7", "band-8"; use an empty string if unsure.
 - usage should explain how to use the word, phrase, or grammar point in IELTS writing/speaking.
 - collocations should be 2-5 natural collocations or fixed phrases separated by commas.
 - commonMistake should warn about a likely learner mistake, false friend, register problem, or wrong collocation.

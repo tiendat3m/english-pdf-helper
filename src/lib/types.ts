@@ -27,6 +27,7 @@ export type BookmarkCategory =
   | "Review later";
 
 export type VocabStatus = "new" | "learning" | "mastered";
+export type VocabDifficulty = "band-5" | "band-6" | "band-7" | "band-8";
 
 export interface BookRecord {
   id: string;
@@ -131,6 +132,10 @@ export interface VocabularyRecord {
   vietnameseMeaning?: string;
   synonyms?: string;
   antonyms?: string;
+  topic?: string;
+  subtopic?: string;
+  tags?: string[];
+  difficulty?: VocabDifficulty;
   example: string;
   sourceBookId: string;
   sourceBookTitle: string;

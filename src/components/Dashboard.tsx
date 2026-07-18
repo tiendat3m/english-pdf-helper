@@ -63,6 +63,7 @@ import type {
   EditorState,
   MainTab,
   PageStatus,
+  VocabDifficulty,
   VocabularyRecord,
   VocabStatus
 } from "@/lib/types";
@@ -102,6 +103,10 @@ interface AiResult {
   meaning: string;
   synonyms: string;
   antonyms: string;
+  topic: string;
+  subtopic: string;
+  tags: string[];
+  difficulty: VocabDifficulty | "";
   usage: string;
   collocations: string;
   commonMistake: string;
@@ -119,6 +124,20 @@ interface AiCacheEntry {
   key: string;
   result: AiResult;
   updatedAt: string;
+}
+
+interface VocabularyMeta {
+  ipa: string;
+  partOfSpeech: string;
+  meaning: string;
+  vietnameseMeaning: string;
+  synonyms: string;
+  antonyms: string;
+  topic: string;
+  subtopic: string;
+  tags: string;
+  difficulty: VocabDifficulty | "";
+  example: string;
 }
 
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
@@ -141,6 +160,22 @@ const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   ollama: "Ollama",
   openai: "OpenAI"
 };
+
+function emptyVocabularyMeta(): VocabularyMeta {
+  return {
+    ipa: "",
+    partOfSpeech: "",
+    meaning: "",
+    vietnameseMeaning: "",
+    synonyms: "",
+    antonyms: "",
+    topic: "",
+    subtopic: "",
+    tags: "",
+    difficulty: "",
+    example: ""
+  };
+}
 
 interface CloudUploadUrlsResponse {
   partUrls: string[];
@@ -369,6 +404,21 @@ function aiCacheKey(mode: AiMode, text: string) {
   return `${mode}:${text.toLowerCase().replace(/\s+/g, " ").trim()}`;
 }
 
+function normalizeTags(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
+  }
+  return String(value ?? "")
+    .split(/[,\n;]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function normalizeDifficulty(value: unknown): VocabDifficulty | "" {
+  return value === "band-5" || value === "band-6" || value === "band-7" || value === "band-8" ? value : "";
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -483,15 +533,7 @@ export default function Dashboard() {
   const [aiTestStatus, setAiTestStatus] = useState<string | null>(null);
   const [dailySessionOpen, setDailySessionOpen] = useState(false);
   const [completedSessionTasks, setCompletedSessionTasks] = useState<string[]>([]);
-  const [vocabularyMeta, setVocabularyMeta] = useState({
-    ipa: "",
-    partOfSpeech: "",
-    meaning: "",
-    vietnameseMeaning: "",
-    synonyms: "",
-    antonyms: "",
-    example: ""
-  });
+  const [vocabularyMeta, setVocabularyMeta] = useState<VocabularyMeta>(emptyVocabularyMeta);
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
@@ -941,6 +983,10 @@ export default function Dashboard() {
       vietnameseMeaning: nextResult.vietnamese,
       synonyms: nextResult.synonyms,
       antonyms: nextResult.antonyms,
+      topic: nextResult.topic,
+      subtopic: nextResult.subtopic,
+      tags: normalizeTags(nextResult.tags).join(", "),
+      difficulty: normalizeDifficulty(nextResult.difficulty),
       example: nextResult.example
     });
   }
@@ -989,6 +1035,10 @@ export default function Dashboard() {
         meaning: payload.meaning || "",
         synonyms: payload.synonyms || "",
         antonyms: payload.antonyms || "",
+        topic: payload.topic || "",
+        subtopic: payload.subtopic || "",
+        tags: normalizeTags(payload.tags),
+        difficulty: normalizeDifficulty(payload.difficulty),
         usage: payload.usage || "",
         collocations: payload.collocations || "",
         commonMistake: payload.commonMistake || "",
@@ -1055,6 +1105,10 @@ export default function Dashboard() {
       vietnameseMeaning: vocabularyMeta.vietnameseMeaning || aiResult?.vietnamese || "",
       synonyms: vocabularyMeta.synonyms || aiResult?.synonyms || "",
       antonyms: vocabularyMeta.antonyms || aiResult?.antonyms || "",
+      topic: vocabularyMeta.topic || aiResult?.topic || "",
+      subtopic: vocabularyMeta.subtopic || aiResult?.subtopic || "",
+      tags: normalizeTags(vocabularyMeta.tags || aiResult?.tags),
+      difficulty: vocabularyMeta.difficulty || aiResult?.difficulty || undefined,
       example: vocabularyMeta.example || aiResult?.example || "",
       status: "new",
       dueAt: nowIso(),
@@ -1068,7 +1122,7 @@ export default function Dashboard() {
     setAiSelection(null);
     setAiResult(null);
     setAiError(null);
-    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
+    setVocabularyMeta(emptyVocabularyMeta());
   }
 
   function handleSaveAiNote() {
@@ -1161,6 +1215,10 @@ export default function Dashboard() {
       "vietnameseMeaning",
       "synonyms",
       "antonyms",
+      "topic",
+      "subtopic",
+      "tags",
+      "difficulty",
       "example",
       "status",
       "sourceBookTitle",
@@ -1169,7 +1227,14 @@ export default function Dashboard() {
       "reviewCount"
     ];
     const rows = activeData.vocabulary.map((item) =>
-      headers.map((header) => csvEscape(item[header as keyof VocabularyRecord])).join(",")
+      headers
+        .map((header) => {
+          if (header === "tags") {
+            return csvEscape((item.tags ?? []).join("; "));
+          }
+          return csvEscape(item[header as keyof VocabularyRecord]);
+        })
+        .join(",")
     );
     const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -1204,6 +1269,10 @@ export default function Dashboard() {
           vietnameseMeaning: getCell(row, "vietnameseMeaning"),
           synonyms: getCell(row, "synonyms"),
           antonyms: getCell(row, "antonyms"),
+          topic: getCell(row, "topic"),
+          subtopic: getCell(row, "subtopic"),
+          tags: normalizeTags(getCell(row, "tags")),
+          difficulty: normalizeDifficulty(getCell(row, "difficulty")) || undefined,
           example: getCell(row, "example"),
           sourceBookId: activeBook?.id ?? MANUAL_VOCABULARY_SOURCE_ID,
           sourceBookTitle: getCell(row, "sourceBookTitle") || activeBook?.title || "Imported vocabulary",
@@ -1433,7 +1502,7 @@ export default function Dashboard() {
   function resetAiDraft() {
     setAiResult(null);
     setAiError(null);
-    setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
+    setVocabularyMeta(emptyVocabularyMeta());
   }
 
   function handleManualVocabularyAdd(word: string) {
@@ -2096,7 +2165,7 @@ export default function Dashboard() {
                   setAiMode(mode);
                   setAiResult(null);
                   setAiError(null);
-                  setVocabularyMeta({ ipa: "", partOfSpeech: "", meaning: "", vietnameseMeaning: "", synonyms: "", antonyms: "", example: "" });
+                  setVocabularyMeta(emptyVocabularyMeta());
                   if (mode === "explain" || mode === "solve") {
                     void analyzeSelection(selection, mode);
                   }
@@ -2529,6 +2598,51 @@ export default function Dashboard() {
                   placeholder="noun, verb, adjective, phrase..."
                 />
               </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Topic
+                  <input
+                    value={vocabularyMeta.topic}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, topic: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                    placeholder="Education, Work, Media..."
+                  />
+                </label>
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Subtopic
+                  <input
+                    value={vocabularyMeta.subtopic}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, subtopic: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                    placeholder="University, stative verbs..."
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_150px]">
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Tags
+                  <input
+                    value={vocabularyMeta.tags}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, tags: event.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                    placeholder="academic, writing, formal"
+                  />
+                </label>
+                <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
+                  Band
+                  <select
+                    value={vocabularyMeta.difficulty}
+                    onChange={(event) => setVocabularyMeta((current) => ({ ...current, difficulty: normalizeDifficulty(event.target.value) }))}
+                    className="mt-1 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-normal outline-none focus:border-sage dark:border-stone-700 dark:bg-stone-900"
+                  >
+                    <option value="">Auto</option>
+                    <option value="band-5">Band 5</option>
+                    <option value="band-6">Band 6</option>
+                    <option value="band-7">Band 7</option>
+                    <option value="band-8">Band 8</option>
+                  </select>
+                </label>
+              </div>
               <label className="block text-sm font-bold text-stone-700 dark:text-stone-200">
                 Vietnamese meaning
                 <input

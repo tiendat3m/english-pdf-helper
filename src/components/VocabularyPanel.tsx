@@ -3,7 +3,7 @@
 import { BookOpen, CheckCircle2, Download, Eye, EyeOff, Layers3, Plus, RotateCcw, Search, Sparkles, Trash2, Upload, Volume2 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { VocabularyRecord, VocabStatus } from "@/lib/types";
+import type { VocabDifficulty, VocabularyRecord, VocabStatus } from "@/lib/types";
 
 interface VocabularyPanelProps {
   vocabulary: VocabularyRecord[];
@@ -22,28 +22,46 @@ interface VocabularyPanelProps {
 }
 
 const statuses: Array<VocabStatus | "all"> = ["all", "new", "learning", "mastered"];
+const VISIBLE_STEP = 50;
 const statusStyles: Record<VocabStatus, string> = {
   new: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200",
   learning: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200",
   mastered: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
 };
+const difficultyLabels: Record<VocabDifficulty, string> = {
+  "band-5": "Band 5",
+  "band-6": "Band 6",
+  "band-7": "Band 7",
+  "band-8": "Band 8"
+};
 
-function speakWord(word: string) {
+type SpeechLang = "en" | "vi";
+
+function speakText(text: string, lang: SpeechLang = "en") {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(word);
+  const cleanText = text.trim();
+  if (!cleanText || cleanText === "-") {
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(cleanText);
   const voices = window.speechSynthesis.getVoices();
+  const voicePrefixes = lang === "vi" ? ["vi", "en-gb", "en-us", "en"] : ["en-gb", "en-us", "en"];
   utterance.voice =
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en-gb")) ??
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en-us")) ??
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ??
-    null;
-  utterance.lang = utterance.voice?.lang ?? "en-US";
-  utterance.rate = 0.85;
+    voicePrefixes
+      .map((prefix) => voices.find((voice) => voice.lang.toLowerCase().startsWith(prefix)))
+      .find(Boolean) ?? null;
+  utterance.lang = utterance.voice?.lang ?? (lang === "vi" ? "vi-VN" : "en-US");
+  utterance.rate = lang === "vi" ? 0.9 : 0.85;
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
+}
+
+function speakWord(word: string) {
+  speakText(word, "en");
 }
 
 function normalizeWord(value: string) {
@@ -91,14 +109,27 @@ export default function VocabularyPanel({
   const [reviewIndex, setReviewIndex] = useState(0);
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [topicFilter, setTopicFilter] = useState("all");
+  const [visibleLimit, setVisibleLimit] = useState(VISIBLE_STEP);
+
+  const topicOptions = useMemo(
+    () =>
+      Array.from(new Set(vocabulary.map((item) => item.topic?.trim()).filter((topic): topic is string => Boolean(topic)))).sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [vocabulary]
+  );
+  const hasUntagged = useMemo(() => vocabulary.some((item) => !item.topic?.trim()), [vocabulary]);
 
   const visible = useMemo(
     () =>
       vocabulary
         .filter((item) => {
+          const topic = item.topic?.trim() || "Untagged";
+          const matchesTopic = topicFilter === "all" || topicFilter === topic;
           const haystack =
-            `${item.word} ${item.ipa ?? ""} ${item.partOfSpeech ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.synonyms ?? ""} ${item.antonyms ?? ""} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
-          return haystack.includes(search.toLowerCase()) && (filter === "all" || item.status === filter);
+            `${item.word} ${item.ipa ?? ""} ${item.partOfSpeech ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.synonyms ?? ""} ${item.antonyms ?? ""} ${item.topic ?? ""} ${item.subtopic ?? ""} ${(item.tags ?? []).join(" ")} ${item.difficulty ?? ""} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
+          return matchesTopic && haystack.includes(search.toLowerCase()) && (filter === "all" || item.status === filter);
         })
         .sort((a, b) => {
           if (sort === "word") {
@@ -109,9 +140,10 @@ export default function VocabularyPanel({
           }
           return b.createdAt.localeCompare(a.createdAt);
         }),
-    [filter, search, sort, vocabulary]
+    [filter, search, sort, topicFilter, vocabulary]
   );
 
+  const displayed = visible.slice(0, visibleLimit);
   const dueCards = visible.filter(isDue);
   const currentCard = dueCards.length ? dueCards[reviewIndex % dueCards.length] : visible[0] ?? null;
   const selectedRecord = visible.find((item) => item.id === selectedRecordId) ?? visible[0] ?? null;
@@ -130,6 +162,10 @@ export default function VocabularyPanel({
       setSelectedRecordId(visible[0].id);
     }
   }, [selectedRecordId, visible]);
+
+  useEffect(() => {
+    setVisibleLimit(VISIBLE_STEP);
+  }, [filter, search, sort, topicFilter]);
 
   function submitNewWord() {
     const word = normalizeWord(newWord);
@@ -153,6 +189,17 @@ export default function VocabularyPanel({
       return;
     }
     onUpdate({ ...record, [field]: nextValue, updatedAt: new Date().toISOString() });
+  }
+
+  function updateTags(record: VocabularyRecord, value: string) {
+    const tags = value
+      .split(/[,\n;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if ((record.tags ?? []).join(", ") === tags.join(", ")) {
+      return;
+    }
+    onUpdate({ ...record, tags, updatedAt: new Date().toISOString() });
   }
 
   function reviewPrompt(record: VocabularyRecord) {
@@ -356,6 +403,35 @@ export default function VocabularyPanel({
           <DeckStat label="Mastered" value={counts.mastered} icon={CheckCircle2} />
         </section>
 
+        <section className="mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-tool dark:border-stone-800 dark:bg-stone-950">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">Topics</span>
+            <TopicChip label="All topics" active={topicFilter === "all"} count={vocabulary.length} onClick={() => setTopicFilter("all")} />
+            {hasUntagged && (
+              <TopicChip
+                label="Untagged"
+                active={topicFilter === "Untagged"}
+                count={vocabulary.filter((item) => !item.topic?.trim()).length}
+                onClick={() => setTopicFilter("Untagged")}
+              />
+            )}
+            {topicOptions.slice(0, 14).map((topic) => (
+              <TopicChip
+                key={topic}
+                label={topic}
+                active={topicFilter === topic}
+                count={vocabulary.filter((item) => item.topic?.trim() === topic).length}
+                onClick={() => setTopicFilter(topic)}
+              />
+            ))}
+            {topicOptions.length > 14 && (
+              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-black text-stone-500 dark:bg-stone-900 dark:text-stone-300">
+                +{topicOptions.length - 14} more
+              </span>
+            )}
+          </div>
+        </section>
+
         {viewMode === "review" && (
           <section className="mt-6 grid gap-5 lg:grid-cols-[0.78fr_0.22fr]">
             <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
@@ -408,7 +484,7 @@ export default function VocabularyPanel({
                   <div className={`mt-8 grid gap-4 transition ${isAnswerVisible ? "opacity-100" : "opacity-35 blur-[2px]"}`}>
                     <AnswerBlock label="English meaning" value={currentCard.meaning || "Meaning pending"} />
                     <AnswerBlock label="Word" value={currentCard.word} />
-                    <AnswerBlock label="Vietnamese" value={currentCard.vietnameseMeaning || "Add Vietnamese meaning"} />
+                    <AnswerBlock label="Vietnamese" value={currentCard.vietnameseMeaning || "Add Vietnamese meaning"} speakLang="vi" />
                     <div className="grid gap-4 md:grid-cols-2">
                       <AnswerBlock label="Synonyms" value={currentCard.synonyms || "-"} />
                       <AnswerBlock label="Antonyms" value={currentCard.antonyms || "-"} />
@@ -468,7 +544,7 @@ export default function VocabularyPanel({
                 <div>
                   <h2 className="text-lg font-black text-stone-950 dark:text-stone-50">Word bank</h2>
                   <p className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                    {visible.length} visible - click a word to edit the full card.
+                    Showing {displayed.length} of {visible.length} - click a word to edit the full card.
                   </p>
                 </div>
                 <span className="rounded-full bg-skysoft px-3 py-1 text-xs font-black text-stone-700 dark:bg-sage/20 dark:text-stone-100">
@@ -478,7 +554,7 @@ export default function VocabularyPanel({
 
               <div className="divide-y divide-stone-100 dark:divide-stone-800">
                 {visible.length ? (
-                  visible.map((item) => (
+                  displayed.map((item) => (
                     <div
                       key={item.id}
                       role="button"
@@ -511,6 +587,7 @@ export default function VocabularyPanel({
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold text-stone-500">
                             {item.ipa && <span className="text-sage">{item.ipa}</span>}
                             {item.partOfSpeech && <span className="capitalize">{item.partOfSpeech}</span>}
+                            {item.topic && <span className="rounded-full bg-paper px-2 py-0.5 text-[10px] font-black text-sage dark:bg-stone-900">{item.topic}</span>}
                             <span>{nextDueLabel(item)}</span>
                           </div>
                         </div>
@@ -538,6 +615,17 @@ export default function VocabularyPanel({
                 ) : (
                   <div className="p-10 text-center text-sm text-stone-500 dark:text-stone-400">
                     Select text in a PDF to start building your IELTS vocabulary deck.
+                  </div>
+                )}
+                {displayed.length < visible.length && (
+                  <div className="border-t border-stone-100 p-4 text-center dark:border-stone-800">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleLimit((current) => current + VISIBLE_STEP)}
+                      className="rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-black text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+                    >
+                      Load {Math.min(VISIBLE_STEP, visible.length - displayed.length)} more words
+                    </button>
                   </div>
                 )}
               </div>
@@ -584,22 +672,72 @@ export default function VocabularyPanel({
                     </DetailField>
                   </div>
 
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <DetailField label="Topic">
+                      <EditableField
+                        value={selectedRecord.topic || ""}
+                        placeholder="Education, Work..."
+                        onCommit={(value) => updateField(selectedRecord, "topic", value)}
+                        className="text-sm font-semibold text-stone-700 dark:text-stone-200"
+                      />
+                    </DetailField>
+                    <DetailField label="Subtopic">
+                      <EditableField
+                        value={selectedRecord.subtopic || ""}
+                        placeholder="University, stative verbs..."
+                        onCommit={(value) => updateField(selectedRecord, "subtopic", value)}
+                        className="text-sm font-semibold text-stone-700 dark:text-stone-200"
+                      />
+                    </DetailField>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[1fr_140px] gap-3">
+                    <DetailField label="Tags">
+                      <EditableField
+                        value={(selectedRecord.tags ?? []).join(", ")}
+                        placeholder="academic, formal"
+                        onCommit={(value) => updateTags(selectedRecord, value)}
+                        className="text-sm font-semibold text-stone-700 dark:text-stone-200"
+                      />
+                    </DetailField>
+                    <DetailField label="Band">
+                      <select
+                        value={selectedRecord.difficulty ?? ""}
+                        onChange={(event) =>
+                          onUpdate({
+                            ...selectedRecord,
+                            difficulty: event.target.value ? (event.target.value as VocabDifficulty) : undefined,
+                            updatedAt: new Date().toISOString()
+                          })
+                        }
+                        className="h-9 w-full rounded-md border border-transparent bg-transparent px-1 text-sm font-semibold outline-none transition hover:border-stone-200 focus:border-sage focus:bg-white dark:focus:bg-stone-900"
+                      >
+                        <option value="">Auto</option>
+                        {Object.entries(difficultyLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </DetailField>
+                  </div>
+
                   <div className="mt-3 space-y-3">
-                    <DetailField label="English meaning">
+                    <DetailField label="English meaning" action={<ListenButton text={selectedRecord.meaning || ""} title="Listen to English meaning" />}>
                       <EditableArea value={selectedRecord.meaning || ""} placeholder="Add English meaning" onCommit={(value) => updateField(selectedRecord, "meaning", value)} />
                     </DetailField>
-                    <DetailField label="Vietnamese">
+                    <DetailField label="Vietnamese" action={<ListenButton text={selectedRecord.vietnameseMeaning || ""} lang="vi" title="Listen to Vietnamese meaning" />}>
                       <EditableArea value={selectedRecord.vietnameseMeaning || ""} placeholder="Add Vietnamese meaning" onCommit={(value) => updateField(selectedRecord, "vietnameseMeaning", value)} />
                     </DetailField>
                     <div className="grid grid-cols-2 gap-3">
-                      <DetailField label="Synonyms">
+                      <DetailField label="Synonyms" action={<ListenButton text={selectedRecord.synonyms || ""} title="Listen to synonyms" />}>
                         <EditableArea value={selectedRecord.synonyms || ""} placeholder="similar words" onCommit={(value) => updateField(selectedRecord, "synonyms", value)} small />
                       </DetailField>
-                      <DetailField label="Antonyms">
+                      <DetailField label="Antonyms" action={<ListenButton text={selectedRecord.antonyms || ""} title="Listen to antonyms" />}>
                         <EditableArea value={selectedRecord.antonyms || ""} placeholder="opposites" onCommit={(value) => updateField(selectedRecord, "antonyms", value)} small />
                       </DetailField>
                     </div>
-                    <DetailField label="Example">
+                    <DetailField label="Example" action={<ListenButton text={selectedRecord.example || ""} title="Listen to example" />}>
                       <EditableArea value={selectedRecord.example || ""} placeholder="Add IELTS example sentence" onCommit={(value) => updateField(selectedRecord, "example", value)} />
                     </DetailField>
                   </div>
@@ -718,12 +856,52 @@ function EditableArea({
   );
 }
 
-function DetailField({ label, children }: { label: string; children: ReactNode }) {
+function DetailField({ label, children, action }: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <label className="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900">
-      <div className="text-[11px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+    <div className="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+        {action}
+      </div>
       <div className="mt-2">{children}</div>
-    </label>
+    </div>
+  );
+}
+
+function ListenButton({ text, lang = "en", title = "Listen" }: { text: string; lang?: SpeechLang; title?: string }) {
+  if (!text.trim() || text.trim() === "-") {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(event) => {
+        event.stopPropagation();
+        speakText(text, lang);
+      }}
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-sage transition hover:bg-white hover:text-ink dark:hover:bg-stone-950 dark:hover:text-paper"
+    >
+      <Volume2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function TopicChip({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-black transition ${
+        active
+          ? "border-sage bg-skysoft text-stone-950 dark:bg-sage/20 dark:text-stone-50"
+          : "border-stone-200 bg-stone-50 text-stone-600 hover:border-sage hover:text-sage dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300"
+      }`}
+    >
+      <span>{label}</span>
+      <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] text-stone-500 dark:bg-stone-950 dark:text-stone-300">{count}</span>
+    </button>
   );
 }
 
@@ -739,10 +917,13 @@ function DeckStat({ label, value, icon: Icon }: { label: string; value: number; 
   );
 }
 
-function AnswerBlock({ label, value }: { label: string; value: string }) {
+function AnswerBlock({ label, value, speakLang = "en" }: { label: string; value: string; speakLang?: SpeechLang }) {
   return (
     <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 dark:border-stone-800 dark:bg-stone-900">
-      <div className="text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">{label}</div>
+        <ListenButton text={value} lang={speakLang} title={`Listen to ${label.toLowerCase()}`} />
+      </div>
       <div className="mt-2 text-sm leading-6 text-stone-800 dark:text-stone-100">{value}</div>
     </div>
   );
