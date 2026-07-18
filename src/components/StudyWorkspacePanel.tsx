@@ -1,9 +1,9 @@
 "use client";
 
-import { CheckCircle2, Circle, Layers3, NotebookPen, Star, Target, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Circle, Download, Layers3, NotebookPen, Search, Star, Target, TriangleAlert } from "lucide-react";
 import { useState, type ComponentType } from "react";
 import { PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
-import type { Annotation, BookRecord, PageStatus, PageStatusRecord, StickyNoteAnnotation, VocabularyRecord } from "@/lib/types";
+import type { Annotation, BookRecord, HighlightAnnotation, PageStatus, PageStatusRecord, StickyNoteAnnotation, VocabularyRecord } from "@/lib/types";
 
 interface StudyWorkspacePanelProps {
   book: BookRecord | null;
@@ -47,6 +47,7 @@ export default function StudyWorkspacePanel({
   onSetPageStatus
 }: StudyWorkspacePanelProps) {
   const [pageMapFilter, setPageMapFilter] = useState<PageMapFilter>("nearby");
+  const [noteSearch, setNoteSearch] = useState("");
   const pageNotes = annotations.filter(
     (annotation): annotation is StickyNoteAnnotation =>
       annotation.type === "note" && annotation.bookId === book?.id && annotation.pageNumber === currentPage
@@ -54,6 +55,13 @@ export default function StudyWorkspacePanel({
   const bookVocabulary = vocabulary.filter((item) => item.sourceBookId === book?.id);
   const currentPageVocabulary = bookVocabulary.filter((item) => item.sourcePage === currentPage).slice(0, 5);
   const recentVocabulary = bookVocabulary.filter((item) => item.sourcePage !== currentPage).slice(0, 6);
+  const bookNotes = annotations
+    .filter((annotation): annotation is StickyNoteAnnotation => annotation.type === "note" && annotation.bookId === book?.id)
+    .filter((note) => note.text.toLowerCase().includes(noteSearch.toLowerCase()))
+    .sort((a, b) => a.pageNumber - b.pageNumber || b.updatedAt.localeCompare(a.updatedAt));
+  const bookHighlights = annotations.filter(
+    (annotation): annotation is HighlightAnnotation => annotation.type === "highlight" && annotation.bookId === book?.id && Boolean(annotation.selectedText)
+  );
   const bookStatuses = pageStatuses
     .filter((status) => status.bookId === book?.id)
     .sort((a, b) => a.pageNumber - b.pageNumber);
@@ -139,6 +147,44 @@ export default function StudyWorkspacePanel({
     { value: "all", label: "All" }
   ];
 
+  function exportNotebookMarkdown() {
+    if (!book) {
+      return;
+    }
+
+    const lines = [
+      `# ${book.title}`,
+      "",
+      "## Notes",
+      ...bookNotes.flatMap((note) => [`### Page ${note.pageNumber}`, "", note.text, ""]),
+      "## Highlights",
+      ...bookHighlights.flatMap((highlight) => [`- Page ${highlight.pageNumber}: ${highlight.selectedText}`]),
+      "",
+      "## Vocabulary",
+      ...bookVocabulary.flatMap((item) => [
+        `### ${item.word}`,
+        item.ipa ? `- IPA: ${item.ipa}` : "",
+        item.partOfSpeech ? `- Part: ${item.partOfSpeech}` : "",
+        item.meaning ? `- Meaning: ${item.meaning}` : "",
+        item.vietnameseMeaning ? `- Vietnamese: ${item.vietnameseMeaning}` : "",
+        item.synonyms ? `- Synonyms: ${item.synonyms}` : "",
+        item.antonyms ? `- Antonyms: ${item.antonyms}` : "",
+        item.example ? `- Example: ${item.example}` : "",
+        `- Source: page ${item.sourcePage}`,
+        ""
+      ])
+    ].filter((line) => line !== "");
+
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${book.title.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "ielts-notebook"}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-l border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:block">
       <div className="flex items-start justify-between gap-3">
@@ -192,9 +238,20 @@ export default function StudyWorkspacePanel({
       </section>
 
       <section className="mt-4 rounded-lg border border-amber-200 bg-[#fff5b8] p-3 shadow-tool dark:border-amber-900 dark:bg-amber-950">
-        <div className="flex items-center gap-2 text-sm font-black text-stone-800 dark:text-amber-50">
-          <NotebookPen className="h-4 w-4" />
-          Page notebook
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-black text-stone-800 dark:text-amber-50">
+            <NotebookPen className="h-4 w-4" />
+            Page notebook
+          </div>
+          <button
+            type="button"
+            onClick={exportNotebookMarkdown}
+            disabled={!book}
+            className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/70 px-2 py-1 text-[11px] font-black text-stone-700 transition hover:border-sage hover:text-sage disabled:opacity-50 dark:border-amber-800 dark:bg-stone-950"
+          >
+            <Download className="h-3.5 w-3.5" />
+            MD
+          </button>
         </div>
         <form
           className="mt-3"
@@ -228,6 +285,30 @@ export default function StudyWorkspacePanel({
           ) : (
             <p className="text-xs leading-5 text-stone-600 dark:text-amber-100">Notes saved on this page will collect here.</p>
           )}
+        </div>
+        <div className="mt-3 rounded-md border border-amber-200 bg-white/65 p-2 dark:border-amber-800 dark:bg-stone-950/60">
+          <label className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5 text-xs text-stone-500 dark:bg-stone-900">
+            <Search className="h-3.5 w-3.5" />
+            <input
+              value={noteSearch}
+              onChange={(event) => setNoteSearch(event.target.value)}
+              placeholder="Search book notes"
+              className="min-w-0 flex-1 bg-transparent outline-none"
+            />
+          </label>
+          <div className="mt-2 max-h-36 space-y-1 overflow-y-auto pr-1">
+            {bookNotes.slice(0, 8).map((note) => (
+              <button
+                key={note.id}
+                type="button"
+                onClick={() => onJumpToPage(note.pageNumber)}
+                className="w-full rounded-md p-2 text-left text-xs leading-5 text-stone-700 transition hover:bg-amber-100 dark:text-stone-200 dark:hover:bg-stone-900"
+              >
+                <span className="font-black text-sage">p. {note.pageNumber}</span> {note.text}
+              </button>
+            ))}
+            {!bookNotes.length && <p className="p-2 text-xs text-stone-500">No matching notes.</p>}
+          </div>
         </div>
       </section>
 

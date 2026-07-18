@@ -1080,6 +1080,15 @@ export default function Dashboard() {
     }));
   }
 
+  async function handleVocabularyUpdate(record: VocabularyRecord) {
+    const next = { ...record, updatedAt: nowIso() };
+    await saveVocabulary(next);
+    setData((current) => ({
+      ...current,
+      vocabulary: current.vocabulary.map((item) => (item.id === record.id ? next : item))
+    }));
+  }
+
   async function handleVocabularyDelete(id: string) {
     await deleteVocabulary(id);
     setData((current) => ({ ...current, vocabulary: current.vocabulary.filter((item) => item.id !== id) }));
@@ -1984,6 +1993,7 @@ export default function Dashboard() {
           onFilterChange={setVocabFilter}
           onSortChange={setVocabSort}
           onStatusChange={handleVocabularyStatus}
+          onUpdate={handleVocabularyUpdate}
           onDelete={handleVocabularyDelete}
           onAddWord={handleManualVocabularyAdd}
         />

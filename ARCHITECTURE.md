@@ -37,13 +37,17 @@ The viewer is loaded with `next/dynamic({ ssr: false })` from `Dashboard` to pre
 
 Pen pressure is read from `PointerEvent.pressure`. The renderer averages pressure to adjust stroke width when available and falls back to `0.5`.
 
-Stylus-only mode filters input to `PointerEvent.pointerType === "pen"`, which helps XP-Pen, Huion, Wacom, and touch-screen users avoid accidental palm/touch marks. Stroke capture also drops very-close points and applies light smoothing before saving.
+Stylus-only mode filters input to `PointerEvent.pointerType === "pen"`, which helps XP-Pen, Huion, Wacom, and touch-screen users avoid accidental palm/touch marks. Stroke capture also drops very-close points and applies light smoothing before saving. Select mode can lasso existing annotations for bulk delete or fast recolor using the current pen/highlighter color.
 
 Highlighter mode creates normalized rectangle annotations instead of freehand strokes. `PdfViewer` reads the rendered PDF text layer spans after page render, stores normalized text item boxes, and passes them to `AnnotationLayer`. When a highlight rectangle is committed, overlapping text items are joined in reading order and saved as `selectedText` on the highlight annotation. Empty text still saves as a visual highlight. If there is no selectable PDF text, `PdfViewer` crops the printed PDF canvas and runs browser OCR with `tesseract.js`; successful OCR updates the highlight as `selectedTextSource: "ocr"` so scanned books can still create vocabulary. A second cropped image that includes annotation overlays is kept only in UI memory for AI solve/explain actions, which helps image-only pages and handwritten answers without bloating IndexedDB.
 
 ## IELTS OS Workspace
 
-The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. Split adds `StudyWorkspacePanel`, which shows a page notebook, book vocabulary, and page map beside the PDF, inspired by MarginNote and LiquidText. The home dashboard also has a daily study session modal that groups reading, weak-page review, and due vocabulary into one short checklist.
+The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. Split adds `StudyWorkspacePanel`, which shows a page notebook, searchable book notes, Markdown notebook export, book vocabulary, and page map beside the PDF, inspired by MarginNote and LiquidText. The home dashboard also has a daily study session modal that groups reading, weak-page review, and due vocabulary into one short checklist.
+
+## Vocabulary Review
+
+`VocabularyPanel` supports a review deck and an editable table. The table edits fields inline and persists changes to IndexedDB. Review mode can focus on meaning, Vietnamese recall, example/context, or spelling. Status changes update the optional spaced-repetition fields on each `VocabularyRecord`.
 
 ## Persistence Flow
 

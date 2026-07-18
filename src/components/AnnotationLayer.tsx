@@ -728,6 +728,30 @@ export default function AnnotationLayer({
     onUpdateAnnotation({ ...annotation, ...patch, updatedAt: nowIso() });
   }
 
+  function recolorSelected(kind: "ink" | "highlight") {
+    selectedIds.forEach((id) => {
+      const annotation = pageAnnotations.find((item) => item.id === id);
+      if (!annotation || annotation.type === "note") {
+        return;
+      }
+
+      if (annotation.type === "highlight") {
+        onUpdateAnnotation({
+          ...annotation,
+          color: HIGHLIGHT_COLORS[highlighterColor]
+        });
+        return;
+      }
+
+      onUpdateAnnotation({
+        ...annotation,
+        color: kind === "highlight" ? HIGHLIGHT_COLORS[highlighterColor] : PEN_COLORS[penColor],
+        tool: kind === "highlight" ? "highlighter" : annotation.tool,
+        opacity: kind === "highlight" ? 0.28 : getBrushProfile(annotation.brush).opacity
+      });
+    });
+  }
+
   const drawingCursor = tool === "pan" ? "pointer-events-none" : "";
   const selectedBounds = selectionBounds(selectedIds);
 
@@ -863,7 +887,7 @@ export default function AnnotationLayer({
         <div
           className="absolute z-40 flex items-center gap-2 rounded-lg border border-stone-200 bg-white/95 p-2 text-xs font-bold text-stone-700 shadow-paper backdrop-blur dark:border-stone-700 dark:bg-stone-950/95 dark:text-stone-100"
           style={{
-            left: Math.min(selectedBounds.x * pageSize.width, pageSize.width - 260),
+            left: Math.max(8, Math.min(selectedBounds.x * pageSize.width, pageSize.width - 360)),
             top: Math.max(8, selectedBounds.y * pageSize.height - 46)
           }}
           onPointerDown={(event) => event.stopPropagation()}
@@ -880,6 +904,20 @@ export default function AnnotationLayer({
             className="rounded-md bg-rose-600 px-2.5 py-1.5 text-white transition hover:bg-rose-700"
           >
             Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => recolorSelected("ink")}
+            className="rounded-md border border-stone-200 px-2.5 py-1.5 text-stone-600 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:text-stone-200"
+          >
+            Ink
+          </button>
+          <button
+            type="button"
+            onClick={() => recolorSelected("highlight")}
+            className="rounded-md border border-stone-200 px-2.5 py-1.5 text-stone-600 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:text-stone-200"
+          >
+            Mark
           </button>
           <button
             type="button"

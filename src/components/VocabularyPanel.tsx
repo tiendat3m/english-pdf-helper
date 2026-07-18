@@ -14,6 +14,7 @@ interface VocabularyPanelProps {
   onFilterChange: (value: VocabStatus | "all") => void;
   onSortChange: (value: "newest" | "word" | "status") => void;
   onStatusChange: (record: VocabularyRecord, status: VocabStatus) => void;
+  onUpdate: (record: VocabularyRecord) => void;
   onDelete: (id: string) => void;
   onAddWord: (word: string) => void;
 }
@@ -75,12 +76,14 @@ export default function VocabularyPanel({
   onFilterChange,
   onSortChange,
   onStatusChange,
+  onUpdate,
   onDelete,
   onAddWord
 }: VocabularyPanelProps) {
   const [isAddingWord, setIsAddingWord] = useState(false);
   const [newWord, setNewWord] = useState("");
   const [viewMode, setViewMode] = useState<"review" | "table">("review");
+  const [quizMode, setQuizMode] = useState<"meaning" | "vietnamese" | "example" | "spelling">("meaning");
   const [reviewIndex, setReviewIndex] = useState(0);
   const [isAnswerVisible, setIsAnswerVisible] = useState(false);
 
@@ -126,6 +129,27 @@ export default function VocabularyPanel({
     onStatusChange(record, status);
     setIsAnswerVisible(false);
     setReviewIndex((current) => current + 1);
+  }
+
+  function updateField(record: VocabularyRecord, field: keyof VocabularyRecord, value: string) {
+    const nextValue = value.trim();
+    if (record[field] === nextValue) {
+      return;
+    }
+    onUpdate({ ...record, [field]: nextValue, updatedAt: new Date().toISOString() });
+  }
+
+  function reviewPrompt(record: VocabularyRecord) {
+    if (quizMode === "vietnamese") {
+      return record.vietnameseMeaning || record.meaning || record.word;
+    }
+    if (quizMode === "example") {
+      return record.example || record.meaning || record.word;
+    }
+    if (quizMode === "spelling") {
+      return record.vietnameseMeaning || record.meaning || "Listen and spell this word";
+    }
+    return record.word;
   }
 
   useEffect(() => {
@@ -228,6 +252,27 @@ export default function VocabularyPanel({
                 </button>
               ))}
             </div>
+            {viewMode === "review" && (
+              <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                {(["meaning", "vietnamese", "example", "spelling"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setQuizMode(mode);
+                      setIsAnswerVisible(false);
+                    }}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-black capitalize transition ${
+                      quizMode === mode
+                        ? "bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-50"
+                        : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            )}
             <label className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <Search className="h-4 w-4" />
               <input
@@ -289,7 +334,10 @@ export default function VocabularyPanel({
                         {currentCard.sourcePage > 0 ? `${currentCard.sourceBookTitle} - page ${currentCard.sourcePage}` : "Manual word"}
                       </span>
                       </div>
-                      <h2 className="mt-5 text-4xl font-black text-stone-950 dark:text-stone-50">{currentCard.word}</h2>
+                      <p className="mt-5 text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">
+                        {quizMode === "spelling" ? "Spell the word" : quizMode === "vietnamese" ? "Recall English" : quizMode === "example" ? "Use this context" : "Recall meaning"}
+                      </p>
+                      <h2 className="mt-2 text-4xl font-black text-stone-950 dark:text-stone-50">{reviewPrompt(currentCard)}</h2>
                       <div className="mt-3 flex flex-wrap items-center gap-3">
                         {currentCard.ipa && <span className="text-lg font-bold text-sage">{currentCard.ipa}</span>}
                         {currentCard.partOfSpeech && (
@@ -319,6 +367,7 @@ export default function VocabularyPanel({
 
                   <div className={`mt-8 grid gap-4 transition ${isAnswerVisible ? "opacity-100" : "opacity-35 blur-[2px]"}`}>
                     <AnswerBlock label="English meaning" value={currentCard.meaning || "Meaning pending"} />
+                    <AnswerBlock label="Word" value={currentCard.word} />
                     <AnswerBlock label="Vietnamese" value={currentCard.vietnameseMeaning || "Add Vietnamese meaning"} />
                     <div className="grid gap-4 md:grid-cols-2">
                       <AnswerBlock label="Synonyms" value={currentCard.synonyms || "-"} />
@@ -403,21 +452,19 @@ export default function VocabularyPanel({
                       >
                         <Volume2 className="h-4 w-4" />
                       </button>
-                      <div className="min-w-0 font-bold text-stone-950 dark:text-stone-50">{item.word}</div>
+                      <EditableField
+                        value={item.word}
+                        onCommit={(value) => updateField(item, "word", value)}
+                        className="min-w-0 font-bold text-stone-950 dark:text-stone-50"
+                      />
                     </div>
-                    <div className="text-xs font-semibold leading-5 text-sage">{item.ipa || "Add IPA"}</div>
-                    <div className="text-xs font-bold capitalize leading-5 text-stone-600 dark:text-stone-300">
-                      {item.partOfSpeech || <span className="font-semibold normal-case text-stone-400">-</span>}
-                    </div>
-                    <div className="text-stone-700 dark:text-stone-200">{item.meaning || "Add English meaning during review"}</div>
-                    <div className="text-stone-700 dark:text-stone-200">{item.vietnameseMeaning || "Add Vietnamese meaning"}</div>
-                    <div className="text-xs leading-5 text-stone-600 dark:text-stone-300">
-                      {item.synonyms || <span className="font-semibold text-stone-400">-</span>}
-                    </div>
-                    <div className="text-xs leading-5 text-stone-600 dark:text-stone-300">
-                      {item.antonyms || <span className="font-semibold text-stone-400">-</span>}
-                    </div>
-                    <div className="text-stone-600 dark:text-stone-300">{item.example || "Add your own sentence"}</div>
+                    <EditableField value={item.ipa || ""} placeholder="Add IPA" onCommit={(value) => updateField(item, "ipa", value)} className="text-xs font-semibold leading-5 text-sage" />
+                    <EditableField value={item.partOfSpeech || ""} placeholder="-" onCommit={(value) => updateField(item, "partOfSpeech", value)} className="text-xs font-bold capitalize leading-5 text-stone-600 dark:text-stone-300" />
+                    <EditableArea value={item.meaning || ""} placeholder="Add English meaning" onCommit={(value) => updateField(item, "meaning", value)} />
+                    <EditableArea value={item.vietnameseMeaning || ""} placeholder="Add Vietnamese meaning" onCommit={(value) => updateField(item, "vietnameseMeaning", value)} />
+                    <EditableArea value={item.synonyms || ""} placeholder="-" onCommit={(value) => updateField(item, "synonyms", value)} small />
+                    <EditableArea value={item.antonyms || ""} placeholder="-" onCommit={(value) => updateField(item, "antonyms", value)} small />
+                    <EditableArea value={item.example || ""} placeholder="Add your own sentence" onCommit={(value) => updateField(item, "example", value)} />
                     <div className="text-xs text-stone-500 dark:text-stone-400">
                       <div className="font-semibold">{item.sourceBookTitle}</div>
                       <div>{item.sourcePage > 0 ? `Page ${item.sourcePage}` : "Manual"}</div>
@@ -452,6 +499,64 @@ export default function VocabularyPanel({
         )}
       </div>
     </main>
+  );
+}
+
+function EditableField({
+  value,
+  placeholder,
+  onCommit,
+  className = ""
+}: {
+  value: string;
+  placeholder?: string;
+  onCommit: (value: string) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      value={draft}
+      placeholder={placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => onCommit(draft)}
+      className={`w-full rounded-md border border-transparent bg-transparent px-1 py-1 outline-none transition hover:border-stone-200 focus:border-sage focus:bg-white dark:focus:bg-stone-900 ${className}`}
+    />
+  );
+}
+
+function EditableArea({
+  value,
+  placeholder,
+  onCommit,
+  small = false
+}: {
+  value: string;
+  placeholder?: string;
+  onCommit: (value: string) => void;
+  small?: boolean;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <textarea
+      value={draft}
+      placeholder={placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => onCommit(draft)}
+      className={`w-full resize-none rounded-md border border-transparent bg-transparent px-1 py-1 leading-5 outline-none transition hover:border-stone-200 focus:border-sage focus:bg-white dark:focus:bg-stone-900 ${
+        small ? "h-20 text-xs text-stone-600 dark:text-stone-300" : "h-24 text-sm text-stone-700 dark:text-stone-200"
+      }`}
+    />
   );
 }
 
