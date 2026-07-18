@@ -683,14 +683,25 @@ export default function Dashboard() {
     void saveAnnotation(annotation);
   }
 
-  function removeAnnotation(id: string) {
-    const existing = data.annotations.find((annotation) => annotation.id === id);
-    if (existing) {
-      setUndoStack((current) => [...current, { type: "delete", annotations: [existing] }]);
-      setRedoStack([]);
+  function removeAnnotations(ids: string[]) {
+    if (!ids.length) {
+      return;
     }
-    setData((current) => ({ ...current, annotations: current.annotations.filter((item) => item.id !== id) }));
-    void deleteAnnotation(id);
+
+    const idSet = new Set(ids);
+    const annotationsToDelete = data.annotations.filter((annotation) => idSet.has(annotation.id));
+    if (!annotationsToDelete.length) {
+      return;
+    }
+
+    setUndoStack((current) => [...current, { type: "delete", annotations: annotationsToDelete }]);
+    setRedoStack([]);
+    setData((current) => ({ ...current, annotations: current.annotations.filter((item) => !idSet.has(item.id)) }));
+    void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
+  }
+
+  function removeAnnotation(id: string) {
+    removeAnnotations([id]);
   }
 
   function handleUndo() {
@@ -1766,6 +1777,7 @@ export default function Dashboard() {
                 onAddAnnotation={addAnnotation}
                 onUpdateAnnotation={updateAnnotation}
                 onDeleteAnnotation={removeAnnotation}
+                onDeleteAnnotations={removeAnnotations}
                 onVocabularyCandidate={(selection, mode = "vocab") => {
                   setAiSelection(selection);
                   setAiMode(mode);

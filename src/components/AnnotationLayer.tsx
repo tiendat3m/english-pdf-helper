@@ -46,6 +46,7 @@ interface AnnotationLayerProps {
   onHighlightCreated: (annotation: HighlightAnnotation, anchor: Point) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
+  onDeleteAnnotations: (ids: string[]) => void;
 }
 
 function normalizePoint(point: { x: number; y: number; pressure: number }, pageSize: { width: number; height: number }): Point {
@@ -127,7 +128,8 @@ export default function AnnotationLayer({
   onAddAnnotation,
   onHighlightCreated,
   onUpdateAnnotation,
-  onDeleteAnnotation
+  onDeleteAnnotation,
+  onDeleteAnnotations
 }: AnnotationLayerProps) {
   const [draft, setDraft] = useState<Point[]>([]);
   const [highlightDraft, setHighlightDraft] = useState<{ start: Point; end: Point } | null>(null);
@@ -872,7 +874,7 @@ export default function AnnotationLayer({
           <button
             type="button"
             onClick={() => {
-              selectedIds.forEach((id) => onDeleteAnnotation(id));
+              onDeleteAnnotations(selectedIds);
               setSelectedIds([]);
             }}
             className="rounded-md bg-rose-600 px-2.5 py-1.5 text-white transition hover:bg-rose-700"

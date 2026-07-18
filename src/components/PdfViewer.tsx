@@ -198,6 +198,7 @@ interface PdfViewerProps {
   onAddAnnotation: (annotation: Annotation) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
+  onDeleteAnnotations: (ids: string[]) => void;
   onVocabularyCandidate: (
     record: VocabularyCandidate,
     mode?: "vocab" | "explain" | "grammar" | "note" | "solve"
@@ -222,6 +223,7 @@ export default function PdfViewer({
   onAddAnnotation,
   onUpdateAnnotation,
   onDeleteAnnotation,
+  onDeleteAnnotations,
   onVocabularyCandidate
 }: PdfViewerProps) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -1083,6 +1085,7 @@ export default function PdfViewer({
                     onHighlightCreated={handleHighlightCreated}
                     onUpdateAnnotation={onUpdateAnnotation}
                     onDeleteAnnotation={onDeleteAnnotation}
+                    onDeleteAnnotations={onDeleteAnnotations}
                   />
                 )}
                 {highlightPopup && pageSize.width > 0 && (

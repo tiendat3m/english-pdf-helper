@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, Circle, Layers3, NotebookPen, Star, Target, TriangleAlert } from "lucide-react";
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import { PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
 import type { Annotation, BookRecord, PageStatus, PageStatusRecord, StickyNoteAnnotation, VocabularyRecord } from "@/lib/types";
 
@@ -25,6 +25,17 @@ const statusIcons: Record<PageStatus, ComponentType<{ className?: string }>> = {
 
 const statusOrder: PageStatus[] = ["not-started", "learning", "done", "need-review"];
 
+type PageMapFilter = "nearby" | "marked" | "review" | "vocab" | "all";
+
+interface PageMapEntry {
+  pageNumber: number;
+  status: PageStatus;
+  ink: number;
+  marks: number;
+  notes: number;
+  vocab: number;
+}
+
 export default function StudyWorkspacePanel({
   book,
   currentPage,
@@ -35,6 +46,7 @@ export default function StudyWorkspacePanel({
   onJumpToPage,
   onSetPageStatus
 }: StudyWorkspacePanelProps) {
+  const [pageMapFilter, setPageMapFilter] = useState<PageMapFilter>("nearby");
   const pageNotes = annotations.filter(
     (annotation): annotation is StickyNoteAnnotation =>
       annotation.type === "note" && annotation.bookId === book?.id && annotation.pageNumber === currentPage
@@ -55,6 +67,77 @@ export default function StudyWorkspacePanel({
     count: bookStatuses.filter((item) => item.status === status).length
   }));
   const nextReviewPage = bookStatuses.find((status) => status.status === "need-review" && status.pageNumber !== currentPage);
+  const bookAnnotations = annotations.filter((annotation) => annotation.bookId === book?.id);
+  const pagesWithSignals = [
+    currentPage,
+    book?.lastPage ?? 0,
+    book?.totalPages ?? 0,
+    ...bookStatuses.map((status) => status.pageNumber),
+    ...bookVocabulary.map((item) => item.sourcePage),
+    ...bookAnnotations.map((annotation) => annotation.pageNumber)
+  ];
+  const pageLimit = Math.max(1, ...pagesWithSignals);
+  const statusByPage = new Map(bookStatuses.map((status) => [status.pageNumber, status.status]));
+  const activityByPage = new Map<number, Pick<PageMapEntry, "ink" | "marks" | "notes" | "vocab">>();
+
+  function ensureActivity(pageNumber: number) {
+    const existing = activityByPage.get(pageNumber);
+    if (existing) {
+      return existing;
+    }
+    const next = { ink: 0, marks: 0, notes: 0, vocab: 0 };
+    activityByPage.set(pageNumber, next);
+    return next;
+  }
+
+  bookAnnotations.forEach((annotation) => {
+    const activity = ensureActivity(annotation.pageNumber);
+    if (annotation.type === "stroke") {
+      activity.ink += 1;
+    } else if (annotation.type === "highlight") {
+      activity.marks += 1;
+    } else {
+      activity.notes += 1;
+    }
+  });
+  bookVocabulary.forEach((item) => {
+    ensureActivity(item.sourcePage).vocab += 1;
+  });
+
+  const pageMap: PageMapEntry[] = Array.from({ length: pageLimit }, (_, index) => {
+    const pageNumber = index + 1;
+    const activity = activityByPage.get(pageNumber) ?? { ink: 0, marks: 0, notes: 0, vocab: 0 };
+    return {
+      pageNumber,
+      status: statusByPage.get(pageNumber) ?? "not-started",
+      ...activity
+    };
+  });
+  const visiblePageMap = pageMap.filter((page) => {
+    const hasAnnotation = page.ink + page.marks + page.notes > 0;
+    const hasSignal = hasAnnotation || page.vocab > 0 || page.status !== "not-started";
+
+    if (pageMapFilter === "all") {
+      return true;
+    }
+    if (pageMapFilter === "review") {
+      return page.status === "need-review";
+    }
+    if (pageMapFilter === "vocab") {
+      return page.vocab > 0;
+    }
+    if (pageMapFilter === "marked") {
+      return hasSignal;
+    }
+    return Math.abs(page.pageNumber - currentPage) <= 5 || hasSignal;
+  });
+  const pageMapFilters: Array<{ value: PageMapFilter; label: string }> = [
+    { value: "nearby", label: "Near" },
+    { value: "marked", label: "Marked" },
+    { value: "review", label: "Review" },
+    { value: "vocab", label: "Vocab" },
+    { value: "all", label: "All" }
+  ];
 
   return (
     <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-l border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:block">
@@ -188,9 +271,17 @@ export default function StudyWorkspacePanel({
       </section>
 
       <section className="mt-4 rounded-lg border border-stone-200 bg-white/92 p-3 shadow-tool dark:border-stone-800 dark:bg-stone-900/92">
-        <div className="flex items-center gap-2 text-sm font-black text-stone-800 dark:text-stone-100">
-          <Layers3 className="h-4 w-4 text-sage" />
-          Review map
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-black text-stone-800 dark:text-stone-100">
+              <Layers3 className="h-4 w-4 text-sage" />
+              Page map
+            </div>
+            <p className="mt-1 text-[11px] font-semibold text-stone-500 dark:text-stone-400">Jump by status, notes, ink, marks, or vocab.</p>
+          </div>
+          <span className="rounded-full bg-skysoft px-2 py-1 text-[10px] font-black text-stone-700 dark:bg-sage/20 dark:text-stone-200">
+            {visiblePageMap.length}
+          </span>
         </div>
         <div className="mt-3 grid grid-cols-4 gap-2">
           {statusCounts.map((item) => {
@@ -203,25 +294,52 @@ export default function StudyWorkspacePanel({
             );
           })}
         </div>
-        <div className="mt-3 grid grid-cols-5 gap-2">
-          {bookStatuses.slice(0, 25).map((status) => {
-            const Icon = statusIcons[status.status];
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {pageMapFilters.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setPageMapFilter(filter.value)}
+              className={`rounded-md border px-2 py-1 text-[10px] font-black transition ${
+                pageMapFilter === filter.value
+                  ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-50"
+                  : "border-stone-200 bg-white text-stone-500 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-950 dark:text-stone-300"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 grid max-h-64 grid-cols-5 gap-2 overflow-y-auto pr-1">
+          {visiblePageMap.map((page) => {
+            const Icon = statusIcons[page.status];
+            const hasActivity = page.ink + page.marks + page.notes + page.vocab > 0;
             return (
               <button
-                key={status.id}
+                key={page.pageNumber}
                 type="button"
-                title={`${PAGE_STATUS_LABELS[status.status]} page ${status.pageNumber}`}
-                onClick={() => onJumpToPage(status.pageNumber)}
-                className={`flex h-11 flex-col items-center justify-center rounded-md border text-[11px] font-black ${PAGE_STATUS_STYLES[status.status]}`}
+                title={`${PAGE_STATUS_LABELS[page.status]} page ${page.pageNumber}`}
+                onClick={() => onJumpToPage(page.pageNumber)}
+                className={`relative flex h-12 flex-col items-center justify-center rounded-md border text-[11px] font-black transition hover:-translate-y-0.5 ${PAGE_STATUS_STYLES[page.status]} ${
+                  currentPage === page.pageNumber ? "ring-2 ring-sage" : ""
+                } ${hasActivity ? "shadow-sm" : "opacity-70"}`}
               >
                 <Icon className="h-3.5 w-3.5" />
-                {status.pageNumber}
+                {page.pageNumber}
+                {hasActivity && (
+                  <span className="absolute bottom-1 flex items-center gap-0.5">
+                    {page.ink > 0 && <span title="Ink" className="h-1.5 w-1.5 rounded-full bg-stone-800 dark:bg-stone-200" />}
+                    {page.marks > 0 && <span title="Highlight" className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                    {page.notes > 0 && <span title="Note" className="h-1.5 w-1.5 rounded-full bg-rose-400" />}
+                    {page.vocab > 0 && <span title="Vocabulary" className="h-1.5 w-1.5 rounded-full bg-sage" />}
+                  </span>
+                )}
               </button>
             );
           })}
-          {!bookStatuses.length && (
+          {!visiblePageMap.length && (
             <p className="col-span-5 text-xs leading-5 text-stone-500 dark:text-stone-400">
-              Mark pages from the library sidebar to build a progress map.
+              No pages match this filter yet.
             </p>
           )}
         </div>
