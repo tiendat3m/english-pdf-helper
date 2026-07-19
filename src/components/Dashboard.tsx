@@ -37,6 +37,7 @@ import VocabularyPanel from "./VocabularyPanel";
 import { AccountControls, useAppAuth } from "./AppAuthProvider";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
 import {
+  appDataBackupToBlob,
   createAppDataBackup,
   deleteAnnotation,
   deleteVocabulary,
@@ -53,7 +54,8 @@ import {
   saveVocabulary,
   softDeleteBook,
   restoreAppDataBackup,
-  touchBook
+  touchBook,
+  type AppDataBackup
 } from "@/lib/db";
 import { initialEditorState, shortcutToTool } from "@/lib/editorStore";
 import type {
@@ -474,6 +476,47 @@ function hasPortableData(data: AppData) {
   );
 }
 
+function backupHasPortableData(backup: AppDataBackup) {
+  return Boolean(
+    backup.data.books?.length ||
+      backup.data.annotations?.length ||
+      backup.data.bookmarks?.length ||
+      backup.data.pageStatuses?.length ||
+      backup.data.vocabulary?.length ||
+      backup.data.activities?.length
+  );
+}
+
+function isIeltsBackup(value: unknown): value is AppDataBackup {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<AppDataBackup>;
+  return (
+    candidate.app === "ielts-pdf-notes" &&
+    typeof candidate.version === "number" &&
+    Boolean(candidate.data) &&
+    Array.isArray(candidate.data?.books) &&
+    Array.isArray(candidate.data?.annotations) &&
+    Array.isArray(candidate.data?.bookmarks) &&
+    Array.isArray(candidate.data?.pageStatuses) &&
+    Array.isArray(candidate.data?.vocabulary) &&
+    Array.isArray(candidate.data?.activities)
+  );
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function dataSyncFingerprint(data: AppData) {
   const timestamps = [
     ...data.books.map((item) => item.updatedAt || item.lastOpenedAt || item.createdAt),
@@ -745,9 +788,8 @@ export default function Dashboard() {
     const autoPullKey = `${ACCOUNT_AUTO_PULL_STORAGE_KEY}:${auth.userId}`;
     if (!hasPortableData(data) && localStorage.getItem(autoPullKey) !== "done") {
       localStorage.setItem(autoPullKey, "done");
-      void handleCloudPull({ automatic: true });
+      setBackupStatus("Signed in. Click Restore to pull your account backup.");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
   useEffect(() => {
@@ -1447,14 +1489,7 @@ export default function Dashboard() {
     setBackupStatus("Preparing backup...");
     try {
       const backupBlob = await exportAppDataBackup();
-      const url = URL.createObjectURL(backupBlob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `ielts-pdf-notes-backup-${nowIso().slice(0, 10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(backupBlob, `ielts-pdf-notes-backup-${nowIso().slice(0, 10)}.json`);
       setBackupStatus("Backup exported.");
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Could not export backup.");
@@ -1530,6 +1565,10 @@ export default function Dashboard() {
     setIsSyncing(true);
     setBackupStatus(options.automatic ? "Account backup syncing..." : "Pushing cloud backup...");
     try {
+      if (!hasPortableData(data)) {
+        throw new Error("No local data to push. Pull or import a backup first.");
+      }
+
       const backupBlob = new Blob([JSON.stringify(await createAppDataBackup())], { type: "application/json" });
       const partCount = Math.ceil(backupBlob.size / CLOUD_SYNC_CHUNK_BYTES);
       if (partCount > MAX_CLOUD_SYNC_PARTS) {
@@ -1622,6 +1661,21 @@ export default function Dashboard() {
           throw new Error("Cloud backup is incomplete. Push it again from the source device.");
         }
         backup = JSON.parse(await backupBlob.text());
+      }
+
+      if (!isIeltsBackup(backup)) {
+        throw new Error("This cloud file is not an IELTS PDF Notes backup.");
+      }
+
+      const incomingHasData = backupHasPortableData(backup);
+      const currentHasData = hasPortableData(data);
+      if (!incomingHasData) {
+        throw new Error(currentHasData ? "Cloud backup is empty. Local data was kept." : "Cloud backup is empty.");
+      }
+
+      if (!options.automatic && currentHasData) {
+        const recovery = appDataBackupToBlob(await createAppDataBackup());
+        downloadBlob(recovery, `ielts-pdf-notes-recovery-before-cloud-restore-${nowIso().slice(0, 10)}.json`);
       }
 
       isRestoringCloudRef.current = true;
@@ -1845,161 +1899,163 @@ export default function Dashboard() {
       }`}
     >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
-        <div className="mx-auto flex w-full max-w-[1580px] flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={goHome} className="flex items-center gap-3" title="Back to Learn home">
+        <div className="mx-auto grid w-full max-w-[1580px] grid-cols-[minmax(210px,1fr)_auto_minmax(0,1fr)] items-center gap-3 max-lg:grid-cols-1">
+          <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-3" title="Back to Learn home">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-sage text-white shadow-tool">
               <GraduationCap className="h-5 w-5" />
             </div>
-            <div className="text-left">
-              <div className="text-lg font-black text-stone-950 dark:text-stone-50">IELTS PDF Notes</div>
+            <div className="min-w-0 text-left">
+              <div className="truncate text-lg font-black text-stone-950 dark:text-stone-50">IELTS PDF Notes</div>
               <div className="text-xs font-semibold text-stone-500 dark:text-stone-400">Band 8 learning workspace</div>
             </div>
           </button>
 
-          <nav className="flex rounded-lg bg-stone-100 p-1 dark:bg-stone-900">
+          <nav className="flex justify-self-center rounded-lg bg-stone-100 p-1 dark:bg-stone-900 max-lg:justify-self-start">
             {tabButton("learn", "Learn")}
             {tabButton("vocabulary", "Vocabulary")}
             {tabButton("progress", "Progress")}
           </nav>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <AccountControls />
-            {auth.isSignedIn ? (
-              <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+          <div className="min-w-0 justify-self-end max-lg:w-full">
+            <div className="flex min-w-0 items-center justify-end gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-lg:justify-start">
+              <AccountControls />
+              {auth.isSignedIn ? (
+                <div className="flex shrink-0 items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                  <button
+                    type="button"
+                    title="Save this browser data to your account"
+                    disabled={isSyncing}
+                    onClick={() => void handleCloudPush()}
+                    className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  >
+                    <CloudUpload className="h-3.5 w-3.5" />
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    title="Restore your account backup into this browser"
+                    disabled={isSyncing}
+                    onClick={() => void handleCloudPull()}
+                    className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  >
+                    <CloudDownload className="h-3.5 w-3.5" />
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    title="Show fallback sync code"
+                    onClick={() => setIsFallbackSyncOpen((current) => !current)}
+                    className={`h-8 rounded-md px-2 text-xs font-black transition ${
+                      isFallbackSyncOpen
+                        ? "bg-skysoft text-stone-800 dark:bg-sage/20 dark:text-stone-100"
+                        : "text-stone-400 hover:bg-stone-100 hover:text-sage dark:text-stone-400 dark:hover:bg-stone-800"
+                    }`}
+                  >
+                    Code
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  title="Save this browser data to your account"
-                  disabled={isSyncing}
-                  onClick={() => void handleCloudPush()}
-                  className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                >
-                  <CloudUpload className="h-3.5 w-3.5" />
-                  Save
-                </button>
-                <button
-                  type="button"
-                  title="Restore your account backup into this browser"
-                  disabled={isSyncing}
-                  onClick={() => void handleCloudPull()}
-                  className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                >
-                  <CloudDownload className="h-3.5 w-3.5" />
-                  Restore
-                </button>
-                <button
-                  type="button"
-                  title="Show fallback sync code"
                   onClick={() => setIsFallbackSyncOpen((current) => !current)}
-                  className={`h-8 rounded-md px-2 text-xs font-black transition ${
-                    isFallbackSyncOpen
-                      ? "bg-skysoft text-stone-800 dark:bg-sage/20 dark:text-stone-100"
-                      : "text-stone-400 hover:bg-stone-100 hover:text-sage dark:text-stone-400 dark:hover:bg-stone-800"
-                  }`}
-                >
-                  Code
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsFallbackSyncOpen((current) => !current)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-xs font-black text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-              >
-                <CloudUpload className="h-3.5 w-3.5" />
-                Sync code
-              </button>
-            )}
-            {isFallbackSyncOpen && (
-              <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-                <input
-                  value={syncCode}
-                  onChange={(event) => setSyncCode(event.target.value)}
-                  placeholder="Fallback code"
-                  aria-label="Fallback cloud sync code"
-                  className="h-8 w-32 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-40"
-                />
-                <button
-                  type="button"
-                  title="Push with fallback sync code"
-                  disabled={isSyncing}
-                  onClick={() => void handleCloudPush()}
-                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-xs font-black text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
                 >
                   <CloudUpload className="h-3.5 w-3.5" />
-                  Push
+                  Sync code
+                </button>
+              )}
+              {isFallbackSyncOpen && (
+                <div className="flex shrink-0 items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                  <input
+                    value={syncCode}
+                    onChange={(event) => setSyncCode(event.target.value)}
+                    placeholder="Fallback code"
+                    aria-label="Fallback cloud sync code"
+                    className="h-8 w-32 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-40"
+                  />
+                  <button
+                    type="button"
+                    title="Push with fallback sync code"
+                    disabled={isSyncing}
+                    onClick={() => void handleCloudPush()}
+                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  >
+                    <CloudUpload className="h-3.5 w-3.5" />
+                    Push
+                  </button>
+                  <button
+                    type="button"
+                    title="Pull with fallback sync code"
+                    disabled={isSyncing}
+                    onClick={() => void handleCloudPull()}
+                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  >
+                    <CloudDownload className="h-3.5 w-3.5" />
+                    Pull
+                  </button>
+                </div>
+              )}
+              <div className="flex shrink-0 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                <button
+                  type="button"
+                  title="Export local backup"
+                  onClick={() => void handleExportBackup()}
+                  className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export
                 </button>
                 <button
                   type="button"
-                  title="Pull with fallback sync code"
-                  disabled={isSyncing}
-                  onClick={() => void handleCloudPull()}
-                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                  title="Import backup"
+                  onClick={() => backupInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
                 >
-                  <CloudDownload className="h-3.5 w-3.5" />
-                  Pull
+                  <Upload className="h-3.5 w-3.5" />
+                  Import
                 </button>
+                <input
+                  ref={backupInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      void handleImportBackup(file);
+                    }
+                  }}
+                />
               </div>
-            )}
-            <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <button
                 type="button"
-                title="Export local backup"
-                onClick={() => void handleExportBackup()}
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
+                title="AI provider settings"
+                onClick={() => setIsAiSettingsOpen(true)}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
               >
-                <Download className="h-3.5 w-3.5" />
-                Export
+                <Settings2 className="h-3.5 w-3.5" />
+                AI: {AI_PROVIDER_LABELS[aiSettings.provider]}
               </button>
-              <button
-                type="button"
-                title="Import backup"
-                onClick={() => backupInputRef.current?.click()}
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Import
-              </button>
-              <input
-                ref={backupInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) {
-                    void handleImportBackup(file);
-                  }
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              title="AI provider settings"
-              onClick={() => setIsAiSettingsOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              AI: {AI_PROVIDER_LABELS[aiSettings.provider]}
-            </button>
-            <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-              {(["light", "warm", "dark"] as const).map((theme) => (
-                <button
-                  key={theme}
-                  type="button"
-                  title={`Use ${theme} theme`}
-                  onClick={() => setEditor((current) => ({ ...current, theme }))}
-                  className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
-                    editor.theme === theme
-                      ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
-                      : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
-                  }`}
-                >
-                  {theme}
-                </button>
-              ))}
+              <div className="flex shrink-0 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                {(["light", "warm", "dark"] as const).map((theme) => (
+                  <button
+                    key={theme}
+                    type="button"
+                    title={`Use ${theme} theme`}
+                    onClick={() => setEditor((current) => ({ ...current, theme }))}
+                    className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
+                      editor.theme === theme
+                        ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                        : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                    }`}
+                  >
+                    {theme}
+                  </button>
+                ))}
+              </div>
             </div>
             {backupStatus && (
-              <div className={`w-full text-right text-xs font-semibold ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") ? "text-rose-600" : "text-sage"}`}>
+              <div className={`truncate pt-1 text-right text-xs font-semibold max-lg:text-left ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
                 {backupStatus}
               </div>
             )}
