@@ -1,6 +1,22 @@
 "use client";
 
-import { BookOpen, CheckCircle2, Download, Eye, EyeOff, Layers3, Plus, RotateCcw, Search, Sparkles, Trash2, Upload, Volume2 } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Layers3,
+  Plus,
+  RotateCcw,
+  Search,
+  Sparkles,
+  Target,
+  Trash2,
+  Upload,
+  Volume2
+} from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { VocabDifficulty, VocabularyRecord, VocabStatus } from "@/lib/types";
@@ -17,6 +33,10 @@ interface VocabularyPanelProps {
   onUpdate: (record: VocabularyRecord) => void;
   onDelete: (id: string) => void;
   onAddWord: (word: string) => void;
+  onOpenSource: (record: VocabularyRecord) => void;
+  onOrganizeVocabulary: () => void;
+  isOrganizingVocabulary: boolean;
+  organizeVocabularyStatus: string | null;
   onExportCsv: () => void;
   onImportCsv: (file: File) => void;
 }
@@ -106,6 +126,10 @@ export default function VocabularyPanel({
   onUpdate,
   onDelete,
   onAddWord,
+  onOpenSource,
+  onOrganizeVocabulary,
+  isOrganizingVocabulary,
+  organizeVocabularyStatus,
   onExportCsv,
   onImportCsv
 }: VocabularyPanelProps) {
@@ -152,7 +176,10 @@ export default function VocabularyPanel({
 
   const displayed = visible.slice(0, visibleLimit);
   const dueCards = visible.filter(isDue);
-  const currentCard = dueCards.length ? dueCards[reviewIndex % dueCards.length] : visible[0] ?? null;
+  const reviewDeck = dueCards.length ? dueCards : visible;
+  const sessionTotal = Math.min(reviewDeck.length, 20);
+  const sessionCompleted = Math.min(reviewIndex, sessionTotal);
+  const currentCard = reviewDeck.length ? reviewDeck[reviewIndex % reviewDeck.length] : null;
   const selectedRecord = visible.find((item) => item.id === selectedRecordId) ?? visible[0] ?? null;
   const counts = {
     new: vocabulary.filter((item) => item.status === "new").length,
@@ -172,6 +199,8 @@ export default function VocabularyPanel({
 
   useEffect(() => {
     setVisibleLimit(VISIBLE_STEP);
+    setReviewIndex(0);
+    setIsAnswerVisible(false);
   }, [filter, search, sort, topicFilter]);
 
   function submitNewWord() {
@@ -227,6 +256,8 @@ export default function VocabularyPanel({
       return;
     }
 
+    const activeReviewCard = currentCard;
+
     function handleReviewKeys(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) {
@@ -241,21 +272,21 @@ export default function VocabularyPanel({
 
       if (event.key === "1") {
         event.preventDefault();
-        onStatusChange(currentCard, "new");
+        onStatusChange(activeReviewCard, "new");
         setIsAnswerVisible(false);
         setReviewIndex((current) => current + 1);
         return;
       }
       if (event.key === "2") {
         event.preventDefault();
-        onStatusChange(currentCard, "learning");
+        onStatusChange(activeReviewCard, "learning");
         setIsAnswerVisible(false);
         setReviewIndex((current) => current + 1);
         return;
       }
       if (event.key === "3") {
         event.preventDefault();
-        onStatusChange(currentCard, "mastered");
+        onStatusChange(activeReviewCard, "mastered");
         setIsAnswerVisible(false);
         setReviewIndex((current) => current + 1);
       }
@@ -305,6 +336,15 @@ export default function VocabularyPanel({
             >
               <Plus className="h-4 w-4" />
               Add word
+            </button>
+            <button
+              type="button"
+              disabled={isOrganizingVocabulary}
+              onClick={onOrganizeVocabulary}
+              className="inline-flex items-center gap-2 rounded-lg border border-sage/30 bg-skysoft px-3 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-sage disabled:cursor-wait disabled:opacity-60 dark:border-sage/50 dark:bg-sage/20 dark:text-stone-100"
+            >
+              <Sparkles className="h-4 w-4" />
+              {isOrganizingVocabulary ? "Organizing" : "Organize"}
             </button>
             <button
               type="button"
@@ -439,23 +479,51 @@ export default function VocabularyPanel({
           </div>
         </section>
 
+        {organizeVocabularyStatus && (
+          <div className="mt-3 rounded-lg border border-sage/25 bg-skysoft/70 px-4 py-3 text-sm font-semibold text-stone-700 dark:border-sage/50 dark:bg-sage/15 dark:text-stone-100">
+            {organizeVocabularyStatus}
+          </div>
+        )}
+
         {viewMode === "review" && (
           <section className="mt-6 grid gap-5 lg:grid-cols-[0.78fr_0.22fr]">
             <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-paper dark:border-stone-800 dark:bg-stone-950">
               {currentCard ? (
                 <div className="min-h-[460px]">
+                  <div className="mb-5 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-800 dark:bg-stone-900">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">
+                      <span className="inline-flex items-center gap-2">
+                        <Target className="h-4 w-4 text-sage" />
+                        Review session
+                      </span>
+                      <span>
+                        {sessionCompleted}/{sessionTotal} cards
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white dark:bg-stone-950">
+                      <div
+                        className="h-full rounded-full bg-sage transition-all"
+                        style={{ width: `${sessionTotal ? (sessionCompleted / sessionTotal) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full border px-2.5 py-1 text-xs font-black capitalize ${statusStyles[currentCard.status]}`}>
-                        {currentCard.status}
-                      </span>
-                      <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-black text-stone-500 dark:bg-stone-900 dark:text-stone-300">
-                        {nextDueLabel(currentCard)}
-                      </span>
-                      <span className="text-xs font-bold text-stone-500 dark:text-stone-400">
-                        {currentCard.sourcePage > 0 ? `${currentCard.sourceBookTitle} - page ${currentCard.sourcePage}` : "Manual word"}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-black capitalize ${statusStyles[currentCard.status]}`}>
+                          {currentCard.status}
+                        </span>
+                        <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-black text-stone-500 dark:bg-stone-900 dark:text-stone-300">
+                          {nextDueLabel(currentCard)}
+                        </span>
+                        {currentCard.topic && (
+                          <span className="rounded-full bg-skysoft px-2.5 py-1 text-xs font-black text-stone-700 dark:bg-sage/20 dark:text-stone-100">
+                            {currentCard.topic}
+                          </span>
+                        )}
+                        <span className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                          {currentCard.sourcePage > 0 ? `${currentCard.sourceBookTitle} - page ${currentCard.sourcePage}` : "Manual word"}
+                        </span>
                       </div>
                       <p className="mt-5 text-xs font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">
                         {quizMode === "spelling" ? "Spell the word" : quizMode === "vietnamese" ? "Recall English" : quizMode === "example" ? "Use this context" : "Recall meaning"}
@@ -500,9 +568,9 @@ export default function VocabularyPanel({
                   </div>
 
                   <div className="mt-8 grid gap-3 md:grid-cols-3">
-                    <ReviewButton label="Again" detail="Keep as new" onClick={() => rateCard(currentCard, "new")} />
-                    <ReviewButton label="Learning" detail="See it again" onClick={() => rateCard(currentCard, "learning")} />
-                    <ReviewButton label="Mastered" detail="Move out of due deck" onClick={() => rateCard(currentCard, "mastered")} strong />
+                    <ReviewButton label="Again" detail="Keep in new pile" onClick={() => rateCard(currentCard, "new")} />
+                    <ReviewButton label="Good" detail="Schedule soon" onClick={() => rateCard(currentCard, "learning")} />
+                    <ReviewButton label="Easy" detail="Mark mastered" onClick={() => rateCard(currentCard, "mastered")} strong />
                   </div>
                 </div>
               ) : (
@@ -519,13 +587,12 @@ export default function VocabularyPanel({
             <aside className="rounded-lg border border-stone-200 bg-white p-4 shadow-paper dark:border-stone-800 dark:bg-stone-950">
               <div className="text-sm font-black text-stone-950 dark:text-stone-50">Next up</div>
               <div className="mt-3 space-y-2">
-                {(dueCards.length ? dueCards : visible).slice(0, 8).map((item, index) => (
+                {reviewDeck.slice(0, 8).map((item, index) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      const target = dueCards.length ? dueCards : visible;
-                      setReviewIndex(Math.max(0, target.findIndex((candidate) => candidate.id === item.id)));
+                      setReviewIndex(Math.max(0, reviewDeck.findIndex((candidate) => candidate.id === item.id)));
                       setIsAnswerVisible(false);
                     }}
                     className={`w-full rounded-md p-2 text-left text-xs transition ${
@@ -649,6 +716,21 @@ export default function VocabularyPanel({
                         onCommit={(value) => updateField(selectedRecord, "word", value)}
                         className="mt-2 text-2xl font-black text-stone-950 dark:text-stone-50"
                       />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-black capitalize ${statusStyles[selectedRecord.status]}`}>
+                          {selectedRecord.status}
+                        </span>
+                        {selectedRecord.topic && (
+                          <span className="rounded-full bg-skysoft px-2.5 py-1 text-[11px] font-black text-stone-700 dark:bg-sage/20 dark:text-stone-100">
+                            {selectedRecord.topic}
+                          </span>
+                        )}
+                        {selectedRecord.difficulty && (
+                          <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-black text-stone-600 dark:bg-stone-900 dark:text-stone-200">
+                            {difficultyLabels[selectedRecord.difficulty]}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -750,8 +832,22 @@ export default function VocabularyPanel({
                   </div>
 
                   <div className="mt-4 rounded-lg bg-paper p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900 dark:text-stone-300">
-                    <div className="font-black text-stone-900 dark:text-stone-50">{selectedRecord.sourceBookTitle}</div>
-                    <div>Page {selectedRecord.sourcePage || "Manual"} - {nextDueLabel(selectedRecord)}</div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-black text-stone-900 dark:text-stone-50">{selectedRecord.sourceBookTitle}</div>
+                        <div>Page {selectedRecord.sourcePage || "Manual"} - {nextDueLabel(selectedRecord)}</div>
+                      </div>
+                      {selectedRecord.sourcePage > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSource(selectedRecord)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-[11px] font-black text-stone-700 transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open page
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-2">

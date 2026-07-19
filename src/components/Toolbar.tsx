@@ -72,7 +72,9 @@ const stylusPresets: Array<{
   { label: "Pencil", detail: "light draft notes", tool: "pen", brush: "pencil", thickness: 0.75, penColor: "slate" },
   { label: "Correct", detail: "red answer marks", tool: "pen", brush: "fountain", thickness: 0.9, penColor: "red" },
   { label: "Vocab", detail: "yellow text highlight", tool: "highlighter", brush: "marker", thickness: 1.1, highlighterColor: "yellow" },
-  { label: "Review", detail: "orange review highlight", tool: "highlighter", brush: "marker", thickness: 1.1, highlighterColor: "orange" }
+  { label: "Review", detail: "orange review highlight", tool: "highlighter", brush: "marker", thickness: 1.1, highlighterColor: "orange" },
+  { label: "Erase S", detail: "small eraser target", tool: "eraser", brush: "ballpoint", thickness: 0.9 },
+  { label: "Erase L", detail: "wide eraser target", tool: "eraser", brush: "ballpoint", thickness: 2.4 }
 ];
 
 const penLabels: Record<StrokeColor, string> = {

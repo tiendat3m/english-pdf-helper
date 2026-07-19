@@ -145,6 +145,7 @@ const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
+const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
@@ -419,6 +420,47 @@ function normalizeDifficulty(value: unknown): VocabDifficulty | "" {
   return value === "band-5" || value === "band-6" || value === "band-7" || value === "band-8" ? value : "";
 }
 
+function readToolSettings(): Partial<
+  Pick<EditorState, "tool" | "penColor" | "highlighterColor" | "brushStyle" | "thickness" | "inputMode" | "aiEnabled">
+> | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TOOL_SETTINGS_STORAGE_KEY) ?? "null") as Partial<EditorState> | null;
+    if (!parsed) {
+      return null;
+    }
+    return {
+      tool: parsed.tool,
+      penColor: parsed.penColor,
+      highlighterColor: parsed.highlighterColor,
+      brushStyle: parsed.brushStyle,
+      thickness: typeof parsed.thickness === "number" ? parsed.thickness : undefined,
+      inputMode: parsed.inputMode,
+      aiEnabled: typeof parsed.aiEnabled === "boolean" ? parsed.aiEnabled : undefined
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeToolSettings(editor: EditorState) {
+  try {
+    localStorage.setItem(
+      TOOL_SETTINGS_STORAGE_KEY,
+      JSON.stringify({
+        tool: editor.tool,
+        penColor: editor.penColor,
+        highlighterColor: editor.highlighterColor,
+        brushStyle: editor.brushStyle,
+        thickness: editor.thickness,
+        inputMode: editor.inputMode,
+        aiEnabled: editor.aiEnabled
+      })
+    );
+  } catch {
+    // Tool settings are a convenience; storage errors should not block studying.
+  }
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -537,6 +579,8 @@ export default function Dashboard() {
   const [vocabSearch, setVocabSearch] = useState("");
   const [vocabFilter, setVocabFilter] = useState<VocabStatus | "all">("all");
   const [vocabSort, setVocabSort] = useState<"newest" | "word" | "status">("newest");
+  const [isOrganizingVocabulary, setIsOrganizingVocabulary] = useState(false);
+  const [organizeVocabularyStatus, setOrganizeVocabularyStatus] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [syncCode, setSyncCode] = useState("");
   const [isSyncCodeLoaded, setIsSyncCodeLoaded] = useState(false);
@@ -547,12 +591,23 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const toolSettings = readToolSettings();
+    if (toolSettings) {
+      setEditor((current) => ({ ...current, ...toolSettings }));
+    }
+  }, []);
+
+  useEffect(() => {
     setAiSettings(readAiSettings());
   }, []);
 
   useEffect(() => {
     writeAiSettings(aiSettings);
   }, [aiSettings]);
+
+  useEffect(() => {
+    writeToolSettings(editor);
+  }, [editor]);
 
   useEffect(() => {
     const urlSession = readWorkspaceSessionFromUrl();
@@ -991,67 +1046,74 @@ export default function Dashboard() {
     });
   }
 
-  async function analyzeSelection(selection: VocabularyDraft, mode: AiMode) {
-    setAiMode(mode);
-    setAiError(null);
-    setIsAiLoading(true);
+  function toAiResult(payload: Partial<AiResult>) {
+    return {
+      title: payload.title || "AI study note",
+      summary: payload.summary || "",
+      ipa: payload.ipa || "",
+      partOfSpeech: payload.partOfSpeech || "",
+      meaning: payload.meaning || "",
+      synonyms: payload.synonyms || "",
+      antonyms: payload.antonyms || "",
+      topic: payload.topic || "",
+      subtopic: payload.subtopic || "",
+      tags: normalizeTags(payload.tags),
+      difficulty: normalizeDifficulty(payload.difficulty),
+      usage: payload.usage || "",
+      collocations: payload.collocations || "",
+      commonMistake: payload.commonMistake || "",
+      example: payload.example || "",
+      grammar: payload.grammar || "",
+      vietnamese: payload.vietnamese || "",
+      suggestedNote: payload.suggestedNote || payload.summary || ""
+    };
+  }
+
+  async function requestAiResult(selection: VocabularyDraft, mode: AiMode) {
     const selectedText = selection.word === "Highlighted passage" ? "" : selection.word.trim();
     const cacheKey = selectedText ? aiCacheKey(mode, selectedText) : "";
 
     if (cacheKey) {
       const cachedResult = readAiCacheEntry(cacheKey);
       if (cachedResult) {
-        applyAiResult(cachedResult);
-        setIsAiLoading(false);
-        return;
+        return toAiResult(cachedResult);
       }
     }
 
+    const response = await fetch("/api/ai/ielts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        text: selectedText,
+        imageDataUrl: selectedText ? undefined : selection.selectedImageDataUrl,
+        sourceBookTitle: selection.sourceBookTitle,
+        sourcePage: selection.sourcePage,
+        provider: aiSettings.provider,
+        providerOrder: aiSettings.providerOrder
+      })
+    });
+
+    const payload = (await response.json()) as Partial<AiResult> & { error?: string };
+    if (!response.ok) {
+      throw new Error(payload.error || "AI request failed.");
+    }
+
+    const nextResult = toAiResult(payload);
+    if (cacheKey) {
+      writeAiCacheEntry(cacheKey, nextResult);
+    }
+    return nextResult;
+  }
+
+  async function analyzeSelection(selection: VocabularyDraft, mode: AiMode) {
+    setAiMode(mode);
+    setAiError(null);
+    setIsAiLoading(true);
+
     try {
-      const response = await fetch("/api/ai/ielts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          text: selectedText,
-          imageDataUrl: selectedText ? undefined : selection.selectedImageDataUrl,
-          sourceBookTitle: selection.sourceBookTitle,
-          sourcePage: selection.sourcePage,
-          provider: aiSettings.provider,
-          providerOrder: aiSettings.providerOrder
-        })
-      });
-
-      const payload = (await response.json()) as Partial<AiResult> & { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error || "AI request failed.");
-      }
-
-      const nextResult: AiResult = {
-        title: payload.title || "AI study note",
-        summary: payload.summary || "",
-        ipa: payload.ipa || "",
-        partOfSpeech: payload.partOfSpeech || "",
-        meaning: payload.meaning || "",
-        synonyms: payload.synonyms || "",
-        antonyms: payload.antonyms || "",
-        topic: payload.topic || "",
-        subtopic: payload.subtopic || "",
-        tags: normalizeTags(payload.tags),
-        difficulty: normalizeDifficulty(payload.difficulty),
-        usage: payload.usage || "",
-        collocations: payload.collocations || "",
-        commonMistake: payload.commonMistake || "",
-        example: payload.example || "",
-        grammar: payload.grammar || "",
-        vietnamese: payload.vietnamese || "",
-        suggestedNote: payload.suggestedNote || payload.summary || ""
-      };
-
+      const nextResult = await requestAiResult(selection, mode);
       applyAiResult(nextResult);
-      if (cacheKey) {
-        writeAiCacheEntry(cacheKey, nextResult);
-      }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "Could not analyze this selection.");
     } finally {
@@ -1517,6 +1579,66 @@ export default function Dashboard() {
     setAiMode("explain");
     resetAiDraft();
     void analyzeSelection(selection, "explain");
+  }
+
+  async function handleOpenVocabularySource(record: VocabularyRecord) {
+    if (!record.sourceBookId || record.sourceBookId === MANUAL_VOCABULARY_SOURCE_ID || record.sourcePage <= 0) {
+      return;
+    }
+    await openBookAtPage(record.sourceBookId, record.sourcePage);
+  }
+
+  async function handleOrganizeVocabulary() {
+    if (isOrganizingVocabulary) {
+      return;
+    }
+
+    const targets = activeData.vocabulary
+      .filter((record) => !record.topic?.trim() || !record.subtopic?.trim() || !(record.tags ?? []).length || !record.difficulty)
+      .slice(0, 20);
+
+    if (!targets.length) {
+      setOrganizeVocabularyStatus("All visible words already have topic metadata.");
+      return;
+    }
+
+    setIsOrganizingVocabulary(true);
+    setOrganizeVocabularyStatus(`Organizing 0/${targets.length} words...`);
+
+    let organizedCount = 0;
+    try {
+      for (const record of targets) {
+        const result = await requestAiResult(
+          {
+            word: record.word,
+            sourceBookId: record.sourceBookId,
+            sourceBookTitle: record.sourceBookTitle,
+            sourcePage: record.sourcePage
+          },
+          "vocab"
+        );
+        const next: VocabularyRecord = {
+          ...record,
+          topic: record.topic?.trim() || result.topic || "General",
+          subtopic: record.subtopic?.trim() || result.subtopic || result.topic || "Vocabulary",
+          tags: (record.tags ?? []).length ? record.tags : result.tags,
+          difficulty: record.difficulty || result.difficulty || undefined,
+          updatedAt: nowIso()
+        };
+        await saveVocabulary(next);
+        organizedCount += 1;
+        setData((current) => ({
+          ...current,
+          vocabulary: current.vocabulary.map((item) => (item.id === next.id ? next : item))
+        }));
+        setOrganizeVocabularyStatus(`Organizing ${organizedCount}/${targets.length} words...`);
+      }
+      setOrganizeVocabularyStatus(`Organized ${organizedCount} word${organizedCount === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setOrganizeVocabularyStatus(error instanceof Error ? error.message : "Could not organize vocabulary.");
+    } finally {
+      setIsOrganizingVocabulary(false);
+    }
   }
 
   function switchTab(tab: MainTab) {
@@ -2201,6 +2323,10 @@ export default function Dashboard() {
           onUpdate={handleVocabularyUpdate}
           onDelete={handleVocabularyDelete}
           onAddWord={handleManualVocabularyAdd}
+          onOpenSource={handleOpenVocabularySource}
+          onOrganizeVocabulary={handleOrganizeVocabulary}
+          isOrganizingVocabulary={isOrganizingVocabulary}
+          organizeVocabularyStatus={organizeVocabularyStatus}
           onExportCsv={handleVocabularyCsvExport}
           onImportCsv={handleVocabularyCsvImport}
         />

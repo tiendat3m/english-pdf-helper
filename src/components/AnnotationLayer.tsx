@@ -555,19 +555,21 @@ export default function AnnotationLayer({
     }
 
     if (tool === "eraser") {
+      const eraserRadius = Math.max(0.012, Math.min(0.06, thickness * 0.018));
       const match = [...pageAnnotations].reverse().find((annotation) => {
         if (annotation.type === "note") {
-          return Math.abs(annotation.x - point.x) < 0.06 && Math.abs(annotation.y - point.y) < 0.05;
+          return Math.abs(annotation.x - point.x) < Math.max(0.05, eraserRadius * 2.4) && Math.abs(annotation.y - point.y) < Math.max(0.04, eraserRadius * 2);
         }
         if (annotation.type === "highlight") {
+          const inset = eraserRadius * 0.6;
           return (
-            point.x >= annotation.rect.x &&
-            point.x <= annotation.rect.x + annotation.rect.width &&
-            point.y >= annotation.rect.y &&
-            point.y <= annotation.rect.y + annotation.rect.height
+            point.x >= annotation.rect.x - inset &&
+            point.x <= annotation.rect.x + annotation.rect.width + inset &&
+            point.y >= annotation.rect.y - inset &&
+            point.y <= annotation.rect.y + annotation.rect.height + inset
           );
         }
-        return distanceToStroke(point, annotation.points) < 0.025;
+        return distanceToStroke(point, annotation.points) < eraserRadius;
       });
       if (match) {
         onDeleteAnnotation(match.id);
