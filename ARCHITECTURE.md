@@ -63,12 +63,16 @@ Most interactions update React state optimistically, then persist to IndexedDB. 
 
 Optional cloud sync stores that same snapshot in a private Supabase Storage bucket. The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function.
 
+When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The client does not send or choose that owner id; the API routes read it from the server-side session. On a signed-in browser with local data, the app debounces an automatic account backup push. On a newly signed-in browser with empty IndexedDB, it automatically tries to pull the account backup. Manual sync-code remains as a guest/fallback path when Clerk is not configured or the user is signed out.
+
 Configure:
 
 ```env
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 SUPABASE_SYNC_BUCKET=ielts-sync
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_or_pk_live...
+CLERK_SECRET_KEY=sk_test_or_sk_live...
 ```
 
 The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<sync-code>/parts/` and committed by uploading `<sync-code>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier `<sync-code>/backup.json` format.

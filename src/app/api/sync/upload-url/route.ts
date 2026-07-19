@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import {
   createSignedUploadUrls,
   getBackupManifestPath,
@@ -8,15 +9,32 @@ import {
   normalizeSyncCode
 } from "@/lib/supabaseStorageSync";
 
+const isClerkServerConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+
+async function getStoragePrefix(syncCode?: string) {
+  if (isClerkServerConfigured) {
+    try {
+      const { userId } = await auth();
+      if (userId) {
+        return `users/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      }
+    } catch {
+      // Fall back to manual sync-code mode below.
+    }
+  }
+
+  return normalizeSyncCode(syncCode);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { syncCode?: string; partCount?: number };
-    const syncCode = normalizeSyncCode(body.syncCode);
+    const storagePrefix = await getStoragePrefix(body.syncCode);
     const partCount = normalizePartCount(body.partCount);
     const config = getSupabaseSyncConfig();
     const paths = [
-      ...Array.from({ length: partCount }, (_, index) => getBackupPartPath(syncCode, index)),
-      getBackupManifestPath(syncCode)
+      ...Array.from({ length: partCount }, (_, index) => getBackupPartPath(storagePrefix, index)),
+      getBackupManifestPath(storagePrefix)
     ];
     const signedUrls = await createSignedUploadUrls(config, paths);
     const manifestUrl = signedUrls.pop();

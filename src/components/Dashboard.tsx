@@ -34,6 +34,7 @@ import ProgressPanel from "./ProgressPanel";
 import StudyWorkspacePanel from "./StudyWorkspacePanel";
 import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
+import { AccountControls, useAppAuth } from "./AppAuthProvider";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
 import {
   createAppDataBackup,
@@ -146,6 +147,7 @@ const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
+const ACCOUNT_AUTO_PULL_STORAGE_KEY = "ielts-pdf-notes-account-auto-pull";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
@@ -461,6 +463,37 @@ function writeToolSettings(editor: EditorState) {
   }
 }
 
+function hasPortableData(data: AppData) {
+  return Boolean(
+    data.books.length ||
+      data.annotations.length ||
+      data.bookmarks.length ||
+      data.pageStatuses.length ||
+      data.vocabulary.length ||
+      data.activities.length
+  );
+}
+
+function dataSyncFingerprint(data: AppData) {
+  const timestamps = [
+    ...data.books.map((item) => item.updatedAt || item.lastOpenedAt || item.createdAt),
+    ...data.annotations.map((item) => item.createdAt),
+    ...data.bookmarks.map((item) => item.createdAt),
+    ...data.pageStatuses.map((item) => item.updatedAt),
+    ...data.vocabulary.map((item) => item.updatedAt || item.createdAt),
+    ...data.activities.map((item) => item.createdAt)
+  ];
+  return [
+    data.books.length,
+    data.annotations.length,
+    data.bookmarks.length,
+    data.pageStatuses.length,
+    data.vocabulary.length,
+    data.activities.length,
+    timestamps.sort().at(-1) ?? ""
+  ].join(":");
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -555,9 +588,13 @@ const PdfViewer = dynamic(() => import("./PdfViewer"), {
 });
 
 export default function Dashboard() {
+  const auth = useAppAuth();
   const backupInputRef = useRef<HTMLInputElement>(null);
   const suppressUrlSyncRef = useRef(false);
   const lastNavigationKeyRef = useRef("");
+  const autoPushTimerRef = useRef<number | null>(null);
+  const isRestoringCloudRef = useRef(false);
+  const lastAutoPushFingerprintRef = useRef("");
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -679,6 +716,14 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (autoPushTimerRef.current !== null) {
+        window.clearTimeout(autoPushTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isSyncCodeLoaded) {
       return;
     }
@@ -690,6 +735,42 @@ export default function Dashboard() {
       localStorage.removeItem(SYNC_CODE_STORAGE_KEY);
     }
   }, [isSyncCodeLoaded, syncCode]);
+
+  useEffect(() => {
+    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading || isSyncing) {
+      return;
+    }
+
+    const autoPullKey = `${ACCOUNT_AUTO_PULL_STORAGE_KEY}:${auth.userId}`;
+    if (!hasPortableData(data) && localStorage.getItem(autoPullKey) !== "done") {
+      localStorage.setItem(autoPullKey, "done");
+      void handleCloudPull({ automatic: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
+
+  useEffect(() => {
+    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading || isSyncing || isRestoringCloudRef.current) {
+      return;
+    }
+    if (!hasPortableData(data)) {
+      return;
+    }
+
+    const fingerprint = dataSyncFingerprint(data);
+    if (fingerprint === lastAutoPushFingerprintRef.current) {
+      return;
+    }
+
+    if (autoPushTimerRef.current !== null) {
+      window.clearTimeout(autoPushTimerRef.current);
+    }
+    autoPushTimerRef.current = window.setTimeout(() => {
+      lastAutoPushFingerprintRef.current = fingerprint;
+      void handleCloudPush({ automatic: true });
+    }, 15_000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", editor.theme === "dark");
@@ -1410,14 +1491,15 @@ export default function Dashboard() {
     options: { partCount?: number } = {}
   ) {
     const code = syncCode.trim();
-    if (!code) {
-      throw new Error("Enter a sync code first.");
+    const canUseAccountCloud = auth.isAuthEnabled && auth.isSignedIn;
+    if (!canUseAccountCloud && !code) {
+      throw new Error("Sign in or enter a sync code first.");
     }
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ syncCode: code, ...options })
+      body: JSON.stringify({ ...(code ? { syncCode: code } : {}), ...options })
     });
 
     if (!response.ok) {
@@ -1442,9 +1524,9 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCloudPush() {
+  async function handleCloudPush(options: { automatic?: boolean } = {}) {
     setIsSyncing(true);
-    setBackupStatus("Pushing cloud backup...");
+    setBackupStatus(options.automatic ? "Account backup syncing..." : "Pushing cloud backup...");
     try {
       const backupBlob = new Blob([JSON.stringify(await createAppDataBackup())], { type: "application/json" });
       const partCount = Math.ceil(backupBlob.size / CLOUD_SYNC_CHUNK_BYTES);
@@ -1480,7 +1562,7 @@ export default function Dashboard() {
         "manifest.json"
       );
 
-      setBackupStatus("Cloud backup pushed.");
+      setBackupStatus(options.automatic ? "Account backup saved." : "Cloud backup pushed.");
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Could not push cloud backup.");
     } finally {
@@ -1488,9 +1570,9 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCloudPull() {
+  async function handleCloudPull(options: { automatic?: boolean } = {}) {
     setIsSyncing(true);
-    setBackupStatus("Pulling cloud backup...");
+    setBackupStatus(options.automatic ? "Checking account backup..." : "Pulling cloud backup...");
     try {
       const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url");
       let backup: unknown;
@@ -1540,6 +1622,7 @@ export default function Dashboard() {
         backup = JSON.parse(await backupBlob.text());
       }
 
+      isRestoringCloudRef.current = true;
       await restoreAppDataBackup(backup, { replace: true });
       const next = await refreshData();
       const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
@@ -1553,10 +1636,11 @@ export default function Dashboard() {
         }));
         setIsWorkspaceOpen(true);
       }
-      setBackupStatus("Cloud backup pulled.");
+      setBackupStatus(options.automatic ? "Account backup restored." : "Cloud backup pulled.");
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Could not pull cloud backup.");
     } finally {
+      isRestoringCloudRef.current = false;
       setIsSyncing(false);
     }
   }
@@ -1777,17 +1861,18 @@ export default function Dashboard() {
           </nav>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <AccountControls />
             <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <input
                 value={syncCode}
                 onChange={(event) => setSyncCode(event.target.value)}
-                placeholder="Sync code"
+                placeholder={auth.isSignedIn ? "Fallback code" : "Sync code"}
                 aria-label="Cloud sync code"
                 className="h-8 w-28 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-36"
               />
               <button
                 type="button"
-                title="Push this browser data to cloud"
+                title={auth.isSignedIn ? "Push this browser data to your account cloud" : "Push this browser data with sync code"}
                 disabled={isSyncing}
                 onClick={() => void handleCloudPush()}
                 className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
@@ -1797,7 +1882,7 @@ export default function Dashboard() {
               </button>
               <button
                 type="button"
-                title="Pull cloud data into this browser"
+                title={auth.isSignedIn ? "Pull your account cloud data into this browser" : "Pull cloud data with sync code"}
                 disabled={isSyncing}
                 onClick={() => void handleCloudPull()}
                 className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"

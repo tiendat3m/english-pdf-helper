@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AppAuthProvider } from "@/components/AppAuthProvider";
 
 export const metadata: Metadata = {
   title: "IELTS PDF Notes",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <AppAuthProvider>{children}</AppAuthProvider>
+      </body>
     </html>
   );
 }
