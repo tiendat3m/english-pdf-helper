@@ -622,6 +622,7 @@ export default function Dashboard() {
   const [syncCode, setSyncCode] = useState("");
   const [isSyncCodeLoaded, setIsSyncCodeLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isFallbackSyncOpen, setIsFallbackSyncOpen] = useState(false);
 
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
@@ -1495,11 +1496,12 @@ export default function Dashboard() {
     if (!canUseAccountCloud && !code) {
       throw new Error("Sign in or enter a sync code first.");
     }
+    const shouldUseFallbackCode = !canUseAccountCloud || isFallbackSyncOpen;
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...(code ? { syncCode: code } : {}), ...options })
+      body: JSON.stringify({ ...(shouldUseFallbackCode && code ? { syncCode: code } : {}), ...options })
     });
 
     if (!response.ok) {
@@ -1862,35 +1864,82 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AccountControls />
-            <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-              <input
-                value={syncCode}
-                onChange={(event) => setSyncCode(event.target.value)}
-                placeholder={auth.isSignedIn ? "Fallback code" : "Sync code"}
-                aria-label="Cloud sync code"
-                className="h-8 w-28 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-36"
-              />
+            {auth.isSignedIn ? (
+              <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                <button
+                  type="button"
+                  title="Save this browser data to your account"
+                  disabled={isSyncing}
+                  onClick={() => void handleCloudPush()}
+                  className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  <CloudUpload className="h-3.5 w-3.5" />
+                  Save
+                </button>
+                <button
+                  type="button"
+                  title="Restore your account backup into this browser"
+                  disabled={isSyncing}
+                  onClick={() => void handleCloudPull()}
+                  className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  <CloudDownload className="h-3.5 w-3.5" />
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  title="Show fallback sync code"
+                  onClick={() => setIsFallbackSyncOpen((current) => !current)}
+                  className={`h-8 rounded-md px-2 text-xs font-black transition ${
+                    isFallbackSyncOpen
+                      ? "bg-skysoft text-stone-800 dark:bg-sage/20 dark:text-stone-100"
+                      : "text-stone-400 hover:bg-stone-100 hover:text-sage dark:text-stone-400 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  Code
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                title={auth.isSignedIn ? "Push this browser data to your account cloud" : "Push this browser data with sync code"}
-                disabled={isSyncing}
-                onClick={() => void handleCloudPush()}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                onClick={() => setIsFallbackSyncOpen((current) => !current)}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-xs font-black text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
               >
                 <CloudUpload className="h-3.5 w-3.5" />
-                Push
+                Sync code
               </button>
-              <button
-                type="button"
-                title={auth.isSignedIn ? "Pull your account cloud data into this browser" : "Pull cloud data with sync code"}
-                disabled={isSyncing}
-                onClick={() => void handleCloudPull()}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-              >
-                <CloudDownload className="h-3.5 w-3.5" />
-                Pull
-              </button>
-            </div>
+            )}
+            {isFallbackSyncOpen && (
+              <div className="flex items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+                <input
+                  value={syncCode}
+                  onChange={(event) => setSyncCode(event.target.value)}
+                  placeholder="Fallback code"
+                  aria-label="Fallback cloud sync code"
+                  className="h-8 w-32 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-40"
+                />
+                <button
+                  type="button"
+                  title="Push with fallback sync code"
+                  disabled={isSyncing}
+                  onClick={() => void handleCloudPush()}
+                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  <CloudUpload className="h-3.5 w-3.5" />
+                  Push
+                </button>
+                <button
+                  type="button"
+                  title="Pull with fallback sync code"
+                  disabled={isSyncing}
+                  onClick={() => void handleCloudPull()}
+                  className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  <CloudDownload className="h-3.5 w-3.5" />
+                  Pull
+                </button>
+              </div>
+            )}
             <div className="flex rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
               <button
                 type="button"
@@ -1949,7 +1998,11 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
-            {backupStatus && <div className="w-full text-right text-xs font-semibold text-sage">{backupStatus}</div>}
+            {backupStatus && (
+              <div className={`w-full text-right text-xs font-semibold ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") ? "text-rose-600" : "text-sage"}`}>
+                {backupStatus}
+              </div>
+            )}
           </div>
         </div>
       </header>

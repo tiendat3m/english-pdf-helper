@@ -1,6 +1,6 @@
 "use client";
 
-import { ClerkProvider, SignInButton, SignOutButton, UserButton, useUser } from "@clerk/nextjs";
+import { ClerkProvider, SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { createContext, useContext, type ReactNode } from "react";
 
 interface AppAuthState {
@@ -83,14 +83,12 @@ function ClerkAccountControls() {
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-2 py-1.5 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+    <div className="flex h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 shadow-sm dark:border-stone-700 dark:bg-stone-900">
       <UserButton />
-      <span className="hidden max-w-36 truncate text-xs font-black text-stone-600 dark:text-stone-200 sm:inline">{auth.userLabel}</span>
-      <SignOutButton>
-        <button type="button" className="rounded-md px-2 py-1.5 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800">
-          Sign out
-        </button>
-      </SignOutButton>
+      <div className="hidden min-w-0 sm:block">
+        <div className="max-w-32 truncate text-xs font-black text-stone-700 dark:text-stone-100">{auth.userLabel}</div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-sage">Synced account</div>
+      </div>
     </div>
   );
 }
