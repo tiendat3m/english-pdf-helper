@@ -37,12 +37,19 @@ const difficultyLabels: Record<VocabDifficulty, string> = {
 
 type SpeechLang = "en" | "vi";
 
+function cleanTextForSpeech(text: string) {
+  return text
+    .replace(/\s*\((?:v|n|adj|adv|verb|noun|adjective|adverb|phrase|phr|phrasal verb|collocation|prep|preposition|conj|conjunction)\)\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function speakText(text: string, lang: SpeechLang = "en") {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     return;
   }
 
-  const cleanText = text.trim();
+  const cleanText = cleanTextForSpeech(text);
   if (!cleanText || cleanText === "-") {
     return;
   }
