@@ -7,6 +7,7 @@ import {
   BookOpen,
   Brain,
   CalendarDays,
+  ChevronDown,
   CircleDot,
   CloudDownload,
   CloudUpload,
@@ -666,6 +667,7 @@ export default function Dashboard() {
   const [isSyncCodeLoaded, setIsSyncCodeLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isFallbackSyncOpen, setIsFallbackSyncOpen] = useState(false);
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<"cloud" | "backup" | null>(null);
 
   useEffect(() => {
     refreshData().finally(() => setIsLoading(false));
@@ -1529,7 +1531,7 @@ export default function Dashboard() {
     const code = syncCode.trim();
     const canUseAccountCloud = auth.isAuthEnabled && auth.isSignedIn;
     if (!canUseAccountCloud && !code) {
-      throw new Error("Sign in or enter a sync code first.");
+      throw new Error("Sign in from the header or enter a sync code in Cloud first.");
     }
     const shouldUseFallbackCode = !canUseAccountCloud || isFallbackSyncOpen;
 
@@ -1899,7 +1901,7 @@ export default function Dashboard() {
       }`}
     >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
-        <div className="mx-auto grid w-full max-w-[1580px] grid-cols-[minmax(210px,1fr)_auto_minmax(0,1fr)] items-center gap-3 max-lg:grid-cols-1">
+        <div className="mx-auto grid w-full max-w-[1580px] grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-x-8 gap-y-3 max-2xl:grid-cols-1">
           <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-3" title="Back to Learn home">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-sage text-white shadow-tool">
               <GraduationCap className="h-5 w-5" />
@@ -1910,123 +1912,166 @@ export default function Dashboard() {
             </div>
           </button>
 
-          <nav className="flex justify-self-center rounded-lg bg-stone-100 p-1 dark:bg-stone-900 max-lg:justify-self-start">
+          <nav className="flex justify-self-center rounded-lg bg-stone-100 p-1 dark:bg-stone-900 max-2xl:justify-self-start">
             {tabButton("learn", "Learn")}
             {tabButton("vocabulary", "Vocabulary")}
             {tabButton("progress", "Progress")}
           </nav>
 
-          <div className="min-w-0 justify-self-end max-lg:w-full">
-            <div className="flex min-w-0 items-center justify-end gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-lg:justify-start">
-              <AccountControls />
-              {auth.isSignedIn ? (
-                <div className="flex shrink-0 items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+          <div className="flex min-w-0 items-center justify-end gap-2 overflow-x-auto pb-1 pl-6 justify-self-end [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
+            {!auth.isSignedIn && <AccountControls />}
+
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setOpenHeaderMenu((current) => (current === "cloud" ? null : "cloud"))}
+                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
+                  openHeaderMenu === "cloud"
+                    ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-100"
+                    : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                }`}
+              >
+                <CloudUpload className="h-3.5 w-3.5" />
+                Cloud
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              {openHeaderMenu === "cloud" && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border border-stone-200 bg-white p-3 shadow-2xl dark:border-stone-700 dark:bg-stone-900 max-2xl:left-0 max-2xl:right-auto">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-black uppercase tracking-[0.2em] text-sage">Cloud Sync</div>
+                      <div className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
+                        Save this browser or restore a backup into it.
+                      </div>
+                    </div>
+                    <AccountControls />
+                  </div>
+                  {auth.isSignedIn ? (
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        title="Save this browser data to your account"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setIsFallbackSyncOpen(false);
+                          setOpenHeaderMenu(null);
+                          void handleCloudPush();
+                        }}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-ink px-3 text-xs font-black text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-paper dark:text-stone-950"
+                      >
+                        <CloudUpload className="h-3.5 w-3.5" />
+                        Save account
+                      </button>
+                      <button
+                        type="button"
+                        title="Restore your account backup into this browser"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setIsFallbackSyncOpen(false);
+                          setOpenHeaderMenu(null);
+                          void handleCloudPull();
+                        }}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-black text-stone-700 transition hover:border-sage hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-200"
+                      >
+                        <CloudDownload className="h-3.5 w-3.5" />
+                        Restore
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mb-3 rounded-lg bg-skysoft px-3 py-2 text-xs font-bold text-stone-700 dark:bg-sage/20 dark:text-stone-200">
+                      Sign in for account cloud, or use a fallback code below.
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-stone-200 bg-paper/70 p-2 dark:border-stone-700 dark:bg-stone-950">
+                    <label className="text-[11px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">
+                      Fallback code
+                    </label>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={syncCode}
+                        onChange={(event) => setSyncCode(event.target.value)}
+                        placeholder="sync-code"
+                        aria-label="Fallback cloud sync code"
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 focus:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+                      />
+                      <button
+                        type="button"
+                        title="Push with fallback sync code"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setIsFallbackSyncOpen(true);
+                          setOpenHeaderMenu(null);
+                          void handleCloudPush();
+                        }}
+                        className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        <CloudUpload className="h-3.5 w-3.5" />
+                        Push
+                      </button>
+                      <button
+                        type="button"
+                        title="Pull with fallback sync code"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setIsFallbackSyncOpen(true);
+                          setOpenHeaderMenu(null);
+                          void handleCloudPull();
+                        }}
+                        className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        <CloudDownload className="h-3.5 w-3.5" />
+                        Pull
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setOpenHeaderMenu((current) => (current === "backup" ? null : "backup"))}
+                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
+                  openHeaderMenu === "backup"
+                    ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-100"
+                    : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                }`}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Backup
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              {openHeaderMenu === "backup" && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-stone-200 bg-white p-2 shadow-2xl dark:border-stone-700 dark:bg-stone-900">
                   <button
                     type="button"
-                    title="Save this browser data to your account"
-                    disabled={isSyncing}
-                    onClick={() => void handleCloudPush()}
-                    className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                    title="Export local backup"
+                    onClick={() => {
+                      setOpenHeaderMenu(null);
+                      void handleExportBackup();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
                   >
-                    <CloudUpload className="h-3.5 w-3.5" />
-                    Save
+                    <Download className="h-3.5 w-3.5" />
+                    Export local backup
                   </button>
                   <button
                     type="button"
-                    title="Restore your account backup into this browser"
-                    disabled={isSyncing}
-                    onClick={() => void handleCloudPull()}
-                    className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                    title="Import backup"
+                    onClick={() => {
+                      backupInputRef.current?.click();
+                      setOpenHeaderMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
                   >
-                    <CloudDownload className="h-3.5 w-3.5" />
-                    Restore
-                  </button>
-                  <button
-                    type="button"
-                    title="Show fallback sync code"
-                    onClick={() => setIsFallbackSyncOpen((current) => !current)}
-                    className={`h-8 rounded-md px-2 text-xs font-black transition ${
-                      isFallbackSyncOpen
-                        ? "bg-skysoft text-stone-800 dark:bg-sage/20 dark:text-stone-100"
-                        : "text-stone-400 hover:bg-stone-100 hover:text-sage dark:text-stone-400 dark:hover:bg-stone-800"
-                    }`}
-                  >
-                    Code
+                    <Upload className="h-3.5 w-3.5" />
+                    Import backup
                   </button>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsFallbackSyncOpen((current) => !current)}
-                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 text-xs font-black text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-                >
-                  <CloudUpload className="h-3.5 w-3.5" />
-                  Sync code
-                </button>
               )}
-              {isFallbackSyncOpen && (
-                <div className="flex shrink-0 items-center rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-                  <input
-                    value={syncCode}
-                    onChange={(event) => setSyncCode(event.target.value)}
-                    placeholder="Fallback code"
-                    aria-label="Fallback cloud sync code"
-                    className="h-8 w-32 rounded-md bg-transparent px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-100 sm:w-40"
-                  />
-                  <button
-                    type="button"
-                    title="Push with fallback sync code"
-                    disabled={isSyncing}
-                    onClick={() => void handleCloudPush()}
-                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                  >
-                    <CloudUpload className="h-3.5 w-3.5" />
-                    Push
-                  </button>
-                  <button
-                    type="button"
-                    title="Pull with fallback sync code"
-                    disabled={isSyncing}
-                    onClick={() => void handleCloudPull()}
-                    className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                  >
-                    <CloudDownload className="h-3.5 w-3.5" />
-                    Pull
-                  </button>
-                </div>
-              )}
-              <div className="flex shrink-0 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-                <button
-                  type="button"
-                  title="Export local backup"
-                  onClick={() => void handleExportBackup()}
-                  className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Export
-                </button>
-                <button
-                  type="button"
-                  title="Import backup"
-                  onClick={() => backupInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-xs font-black text-stone-500 transition hover:bg-stone-100 hover:text-sage dark:text-stone-300 dark:hover:bg-stone-800"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Import
-                </button>
-                <input
-                  ref={backupInputRef}
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void handleImportBackup(file);
-                    }
-                  }}
-                />
-              </div>
+            </div>
+
               <button
                 type="button"
                 title="AI provider settings"
@@ -2055,11 +2100,22 @@ export default function Dashboard() {
               </div>
             </div>
             {backupStatus && (
-              <div className={`truncate pt-1 text-right text-xs font-semibold max-lg:text-left ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
+              <div className={`col-span-full truncate text-center text-xs font-semibold xl:text-right ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
                 {backupStatus}
               </div>
             )}
-          </div>
+            <input
+              ref={backupInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  void handleImportBackup(file);
+                }
+              }}
+            />
         </div>
       </header>
 

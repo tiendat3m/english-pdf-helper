@@ -63,7 +63,7 @@ function ClerkAccountControls() {
 
   if (!auth.isLoaded) {
     return (
-      <div className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
+      <div className="shrink-0 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
         Account
       </div>
     );
@@ -74,7 +74,7 @@ function ClerkAccountControls() {
       <SignInButton mode="modal">
         <button
           type="button"
-          className="rounded-lg border border-sage/40 bg-skysoft px-3 py-2 text-xs font-black text-stone-800 shadow-sm transition hover:border-sage dark:border-sage/50 dark:bg-sage/20 dark:text-stone-100"
+          className="shrink-0 rounded-lg border border-sage/40 bg-skysoft px-3 py-2 text-xs font-black text-stone-800 shadow-sm transition hover:border-sage dark:border-sage/50 dark:bg-sage/20 dark:text-stone-100"
         >
           Sign in
         </button>
@@ -83,10 +83,10 @@ function ClerkAccountControls() {
   }
 
   return (
-    <div className="flex h-10 items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+    <div className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 shadow-sm dark:border-stone-700 dark:bg-stone-900">
       <UserButton />
-      <div className="hidden min-w-0 sm:block">
-        <div className="max-w-32 truncate text-xs font-black text-stone-700 dark:text-stone-100">{auth.userLabel}</div>
+      <div className="hidden min-w-0 min-[1800px]:block">
+        <div className="max-w-28 truncate text-xs font-black text-stone-700 dark:text-stone-100">{auth.userLabel}</div>
         <div className="text-[10px] font-bold uppercase tracking-wide text-sage">Synced account</div>
       </div>
     </div>
