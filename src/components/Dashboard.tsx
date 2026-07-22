@@ -46,8 +46,10 @@ import {
   importBook,
   importAppDataBackup,
   loadAppData,
+  migrateLegacyDataIntoActiveWorkspace,
   permanentlyDeleteBooks,
   restoreBook,
+  setActiveDataWorkspace,
   saveAnnotation,
   saveBook,
   saveBookmark,
@@ -147,6 +149,7 @@ interface VocabularyMeta {
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
+const LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY = "ielts-pdf-notes-legacy-workspace-migrated-to";
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
@@ -166,6 +169,13 @@ const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   ollama: "Ollama",
   openai: "OpenAI"
 };
+
+function getDataWorkspaceKey(auth: ReturnType<typeof useAppAuth>) {
+  if (auth.isAuthEnabled && !auth.isLoaded) {
+    return null;
+  }
+  return auth.isAuthEnabled && auth.isSignedIn && auth.userId ? `user_${auth.userId}` : "guest";
+}
 
 function emptyVocabularyMeta(): VocabularyMeta {
   return {
@@ -330,9 +340,13 @@ function readWorkspaceSessionFromUrl(): WorkspaceSession | null {
   return session;
 }
 
-function readStoredWorkspaceSession(): WorkspaceSession | null {
+function getWorkspaceSessionStorageKey(workspaceKey: string) {
+  return `${WORKSPACE_SESSION_STORAGE_KEY}:${workspaceKey}`;
+}
+
+function readStoredWorkspaceSession(workspaceKey: string): WorkspaceSession | null {
   try {
-    const raw = localStorage.getItem(WORKSPACE_SESSION_STORAGE_KEY);
+    const raw = localStorage.getItem(getWorkspaceSessionStorageKey(workspaceKey));
     if (!raw) {
       return null;
     }
@@ -370,8 +384,11 @@ function createWorkspaceSession(editor: EditorState, isWorkspaceOpen: boolean): 
   };
 }
 
-function writeStoredWorkspaceSession(editor: EditorState, isWorkspaceOpen: boolean) {
-  localStorage.setItem(WORKSPACE_SESSION_STORAGE_KEY, JSON.stringify(createWorkspaceSession(editor, isWorkspaceOpen)));
+function writeStoredWorkspaceSession(workspaceKey: string, editor: EditorState, isWorkspaceOpen: boolean) {
+  localStorage.setItem(
+    getWorkspaceSessionStorageKey(workspaceKey),
+    JSON.stringify(createWorkspaceSession(editor, isWorkspaceOpen))
+  );
 }
 
 function getWorkspaceNavigationKey(editor: EditorState, isWorkspaceOpen: boolean) {
@@ -639,6 +656,7 @@ export default function Dashboard() {
   const autoPushTimerRef = useRef<number | null>(null);
   const isRestoringCloudRef = useRef(false);
   const lastAutoPushFingerprintRef = useRef("");
+  const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -668,10 +686,7 @@ export default function Dashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isFallbackSyncOpen, setIsFallbackSyncOpen] = useState(false);
   const [openHeaderMenu, setOpenHeaderMenu] = useState<"cloud" | "backup" | null>(null);
-
-  useEffect(() => {
-    refreshData().finally(() => setIsLoading(false));
-  }, []);
+  const activeDataWorkspaceKey = getDataWorkspaceKey(auth);
 
   useEffect(() => {
     const toolSettings = readToolSettings();
@@ -693,20 +708,76 @@ export default function Dashboard() {
   }, [editor]);
 
   useEffect(() => {
-    const urlSession = readWorkspaceSessionFromUrl();
-    const storedSession = urlSession ?? readStoredWorkspaceSession();
-
-    if (storedSession) {
-      setEditor((current) => mergeWorkspaceSession(current, storedSession));
-      setIsWorkspaceOpen(
-        typeof storedSession.isWorkspaceOpen === "boolean"
-          ? storedSession.isWorkspaceOpen
-          : storedSession.activeTab === "learn" && Boolean(storedSession.activeBookId)
-      );
+    if (!activeDataWorkspaceKey || activeDataWorkspaceRef.current === activeDataWorkspaceKey) {
+      return;
     }
 
-    setIsNavigationReady(true);
-  }, []);
+    const workspaceKey = activeDataWorkspaceKey;
+    let cancelled = false;
+    activeDataWorkspaceRef.current = workspaceKey;
+    setIsLoading(true);
+    setIsNavigationReady(false);
+    setData(emptyAppData());
+    setBackupStatus(null);
+    setOpenHeaderMenu(null);
+    lastAutoPushFingerprintRef.current = "";
+    if (autoPushTimerRef.current !== null) {
+      window.clearTimeout(autoPushTimerRef.current);
+      autoPushTimerRef.current = null;
+    }
+
+    async function switchWorkspace() {
+      setActiveDataWorkspace(workspaceKey);
+      const migrationClaim = localStorage.getItem(LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY);
+      const shouldTryLegacyMigration = auth.isAuthEnabled && auth.isSignedIn && auth.userId && !migrationClaim;
+      const migrated = shouldTryLegacyMigration ? await migrateLegacyDataIntoActiveWorkspace() : false;
+      if (migrated) {
+        localStorage.setItem(LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY, workspaceKey);
+      }
+      const next = await loadAppData();
+      if (cancelled) {
+        return;
+      }
+
+      setData(next);
+      const urlSession = readWorkspaceSessionFromUrl();
+      const storedSession = urlSession ?? readStoredWorkspaceSession(workspaceKey);
+      if (storedSession) {
+        setEditor((current) => mergeWorkspaceSession(current, storedSession));
+        setIsWorkspaceOpen(
+          typeof storedSession.isWorkspaceOpen === "boolean"
+            ? storedSession.isWorkspaceOpen
+            : storedSession.activeTab === "learn" && Boolean(storedSession.activeBookId)
+        );
+      } else {
+        setEditor((current) => ({
+          ...current,
+          activeTab: "learn",
+          activeBookId: null,
+          currentPage: 1,
+          zoom: DEFAULT_ZOOM
+        }));
+        setIsWorkspaceOpen(false);
+      }
+
+      if (migrated) {
+        setBackupStatus("Existing local data moved into this account workspace.");
+      }
+      setIsNavigationReady(true);
+      setIsLoading(false);
+    }
+
+    void switchWorkspace().catch((error) => {
+      if (!cancelled) {
+        setBackupStatus(error instanceof Error ? error.message : "Could not open this workspace.");
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDataWorkspaceKey, auth.isAuthEnabled, auth.isSignedIn, auth.userId]);
 
   useEffect(() => {
     function handlePopState() {
@@ -736,7 +807,9 @@ export default function Dashboard() {
       return;
     }
 
-    writeStoredWorkspaceSession(editor, isWorkspaceOpen);
+    if (activeDataWorkspaceKey) {
+      writeStoredWorkspaceSession(activeDataWorkspaceKey, editor, isWorkspaceOpen);
+    }
 
     const nextNavigationKey = getWorkspaceNavigationKey(editor, isWorkspaceOpen);
     const nextUrl = buildWorkspaceUrl(editor, isWorkspaceOpen);
@@ -754,7 +827,7 @@ export default function Dashboard() {
     }
 
     lastNavigationKeyRef.current = nextNavigationKey;
-  }, [editor, isNavigationReady, isWorkspaceOpen]);
+  }, [activeDataWorkspaceKey, editor, isNavigationReady, isWorkspaceOpen]);
 
   useEffect(() => {
     setSyncCode(localStorage.getItem(SYNC_CODE_STORAGE_KEY) ?? "");
@@ -1918,7 +1991,7 @@ export default function Dashboard() {
             {tabButton("progress", "Progress")}
           </nav>
 
-          <div className="flex min-w-0 items-center justify-end gap-2 overflow-x-auto pb-1 pl-6 justify-self-end [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 pl-6 justify-self-end max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
             {!auth.isSignedIn && <AccountControls />}
 
             <div className="relative shrink-0">

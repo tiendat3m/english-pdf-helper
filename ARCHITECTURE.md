@@ -57,13 +57,15 @@ The Learn screen supports Focus and Split modes. Focus keeps the PDF centered. S
 
 Most interactions update React state optimistically, then persist to IndexedDB. The original PDF Blob remains untouched. Reopening a book restores the last page and zoom from the book record.
 
+IndexedDB is scoped by workspace. Signed-in Clerk users use an account-specific database name derived from the Clerk user id, while signed-out use stays in a separate guest database. Logging out therefore hides the signed-in workspace, and logging into another account opens a different local database. The older pre-account database is migrated once into the first signed-in account workspace that claims it, then left dormant for recovery.
+
 ## Backup And Cross-Device Sync
 
 `src/lib/db.ts` serializes the complete IndexedDB state, including PDF blobs, into a versioned JSON backup. File export/import remains available for offline backup.
 
 Optional cloud sync stores that same snapshot in a private Supabase Storage bucket. The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function.
 
-When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The client does not send or choose that owner id; the API routes read it from the server-side session. On a signed-in browser with local data, the app debounces an automatic account backup push. On a newly signed-in browser with empty IndexedDB, it automatically tries to pull the account backup. Manual sync-code remains as a guest/fallback path when Clerk is not configured or the user is signed out.
+When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The client does not send or choose that owner id; the API routes read it from the server-side session. On a signed-in browser with local data, the app debounces an automatic account backup push for the active account workspace. A newly opened empty account workspace asks the user to restore rather than automatically replacing local data. Manual sync-code remains as a guest/fallback path for recovery and migration.
 
 Configure:
 
@@ -75,9 +77,9 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_or_pk_live...
 CLERK_SECRET_KEY=sk_test_or_sk_live...
 ```
 
-The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<sync-code>/parts/` and committed by uploading `<sync-code>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier `<sync-code>/backup.json` format.
+The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<owner>/parts/` and committed by uploading `<owner>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier `<sync-code>/backup.json` format.
 
-Use a long, hard-to-guess sync code because this MVP does not have user accounts yet. `Push` overwrites the cloud snapshot; `Pull` replaces the current browser database with that snapshot.
+Use a long, hard-to-guess sync code for fallback mode. `Push` overwrites that cloud snapshot; `Pull` replaces only the currently active local workspace after validating that the incoming backup is not empty.
 
 ## AI Study Coach
 

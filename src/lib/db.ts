@@ -48,11 +48,13 @@ interface IeltsPdfNotesDB extends DBSchema {
   };
 }
 
-const DB_NAME = "ielts-pdf-notes";
+const LEGACY_DB_NAME = "ielts-pdf-notes";
+const DB_NAME_PREFIX = "ielts-pdf-notes-workspace";
 const DB_VERSION = 1;
 const BACKUP_VERSION = 1;
 
 let dbPromise: Promise<IDBPDatabase<IeltsPdfNotesDB>> | null = null;
+let activeWorkspaceKey = "guest";
 
 type BackupBookRecord = Omit<BookRecord, "blob"> & {
   blobDataUrl: string;
@@ -74,40 +76,64 @@ interface RestoreBackupOptions {
 
 const BACKUP_STORE_NAMES = ["books", "annotations", "bookmarks", "pageStatuses", "vocabulary", "activities"] as const;
 
+function sanitizeWorkspaceKey(workspaceKey: string) {
+  return workspaceKey.trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "guest";
+}
+
+function getWorkspaceDbName(workspaceKey: string) {
+  return `${DB_NAME_PREFIX}-${sanitizeWorkspaceKey(workspaceKey)}`;
+}
+
+function upgradeDb(db: IDBPDatabase<IeltsPdfNotesDB>) {
+  const books = db.createObjectStore("books", { keyPath: "id" });
+  books.createIndex("by-last-opened", "lastOpenedAt");
+
+  const annotations = db.createObjectStore("annotations", { keyPath: "id" });
+  annotations.createIndex("by-book-page", ["bookId", "pageNumber"]);
+
+  const bookmarks = db.createObjectStore("bookmarks", { keyPath: "id" });
+  bookmarks.createIndex("by-book", "bookId");
+
+  const pageStatuses = db.createObjectStore("pageStatuses", { keyPath: "id" });
+  pageStatuses.createIndex("by-book-page", ["bookId", "pageNumber"]);
+
+  const vocabulary = db.createObjectStore("vocabulary", { keyPath: "id" });
+  vocabulary.createIndex("by-source", "sourceBookId");
+  vocabulary.createIndex("by-status", "status");
+
+  const activities = db.createObjectStore("activities", { keyPath: "id" });
+  activities.createIndex("by-date", "createdAt");
+}
+
+function openWorkspaceDb(dbName: string) {
+  return openDB<IeltsPdfNotesDB>(dbName, DB_VERSION, {
+    upgrade: upgradeDb
+  });
+}
+
 function getDb() {
   if (!dbPromise) {
-    dbPromise = openDB<IeltsPdfNotesDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const books = db.createObjectStore("books", { keyPath: "id" });
-        books.createIndex("by-last-opened", "lastOpenedAt");
-
-        const annotations = db.createObjectStore("annotations", { keyPath: "id" });
-        annotations.createIndex("by-book-page", ["bookId", "pageNumber"]);
-
-        const bookmarks = db.createObjectStore("bookmarks", { keyPath: "id" });
-        bookmarks.createIndex("by-book", "bookId");
-
-        const pageStatuses = db.createObjectStore("pageStatuses", { keyPath: "id" });
-        pageStatuses.createIndex("by-book-page", ["bookId", "pageNumber"]);
-
-        const vocabulary = db.createObjectStore("vocabulary", { keyPath: "id" });
-        vocabulary.createIndex("by-source", "sourceBookId");
-        vocabulary.createIndex("by-status", "status");
-
-        const activities = db.createObjectStore("activities", { keyPath: "id" });
-        activities.createIndex("by-date", "createdAt");
-      }
-    });
+    dbPromise = openWorkspaceDb(getWorkspaceDbName(activeWorkspaceKey));
   }
   return dbPromise;
 }
 
-export async function loadAppData(): Promise<AppData> {
-  if (typeof window === "undefined") {
-    return emptyAppData();
+export function setActiveDataWorkspace(workspaceKey: string) {
+  const nextWorkspaceKey = sanitizeWorkspaceKey(workspaceKey);
+  if (nextWorkspaceKey === activeWorkspaceKey) {
+    return activeWorkspaceKey;
   }
 
-  const db = await getDb();
+  const currentPromise = dbPromise;
+  if (currentPromise) {
+    void currentPromise.then((db) => db.close()).catch(() => undefined);
+  }
+  dbPromise = null;
+  activeWorkspaceKey = nextWorkspaceKey;
+  return activeWorkspaceKey;
+}
+
+async function readAppDataFromDb(db: IDBPDatabase<IeltsPdfNotesDB>): Promise<AppData> {
   await purgeExpiredDeletedBooks(db);
   const [books, annotations, bookmarks, pageStatuses, vocabulary, activities] = await Promise.all([
     db.getAll("books"),
@@ -126,6 +152,64 @@ export async function loadAppData(): Promise<AppData> {
     vocabulary: vocabulary.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activities: activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 80)
   };
+}
+
+export async function loadAppData(): Promise<AppData> {
+  if (typeof window === "undefined") {
+    return emptyAppData();
+  }
+
+  return readAppDataFromDb(await getDb());
+}
+
+function hasStoredData(data: AppData) {
+  return Boolean(
+    data.books.length ||
+      data.annotations.length ||
+      data.bookmarks.length ||
+      data.pageStatuses.length ||
+      data.vocabulary.length ||
+      data.activities.length
+  );
+}
+
+export async function migrateLegacyDataIntoActiveWorkspace() {
+  if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
+    return false;
+  }
+
+  const activeDb = await getDb();
+  const activeData = await readAppDataFromDb(activeDb);
+  if (hasStoredData(activeData)) {
+    return false;
+  }
+
+  const legacyDb = await openWorkspaceDb(LEGACY_DB_NAME);
+  try {
+    const legacyData = await readAppDataFromDb(legacyDb);
+    if (!hasStoredData(legacyData)) {
+      return false;
+    }
+
+    const tx = activeDb.transaction(BACKUP_STORE_NAMES, "readwrite");
+    await Promise.all([
+      ...legacyData.books.map((book) => tx.objectStore("books").put(book)),
+      ...legacyData.annotations.map((annotation) => tx.objectStore("annotations").put(annotation)),
+      ...legacyData.bookmarks.map((bookmark) => tx.objectStore("bookmarks").put(bookmark)),
+      ...legacyData.pageStatuses.map((status) => tx.objectStore("pageStatuses").put(status)),
+      ...legacyData.vocabulary.map((record) => tx.objectStore("vocabulary").put(record)),
+      ...legacyData.activities.map((activity) => tx.objectStore("activities").put(activity)),
+      tx.done
+    ]);
+
+    await addActivity({
+      type: "book-restored",
+      label: "Moved existing local data into this account workspace"
+    });
+    return true;
+  } finally {
+    legacyDb.close();
+  }
 }
 
 function blobToDataUrl(blob: Blob) {
