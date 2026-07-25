@@ -1,6 +1,6 @@
 "use client";
 
-import { ClerkProvider, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { ClerkProvider, SignInButton, UserButton, useAuth, useUser } from "@clerk/nextjs";
 import { createContext, useContext, type ReactNode } from "react";
 
 interface AppAuthState {
@@ -9,6 +9,7 @@ interface AppAuthState {
   isSignedIn: boolean;
   userId: string | null;
   userLabel: string;
+  getToken: () => Promise<string | null>;
 }
 
 const isClerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -18,13 +19,15 @@ const guestAuthState: AppAuthState = {
   isLoaded: true,
   isSignedIn: false,
   userId: null,
-  userLabel: "Guest"
+  userLabel: "Guest",
+  getToken: async () => null
 };
 
 const AppAuthContext = createContext<AppAuthState>(guestAuthState);
 
 function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
+  const { getToken } = useAuth();
   const userLabel =
     user?.primaryEmailAddress?.emailAddress ??
     user?.username ??
@@ -38,7 +41,8 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
         isLoaded,
         isSignedIn: Boolean(isSignedIn),
         userId: user?.id ?? null,
-        userLabel
+        userLabel,
+        getToken
       }}
     >
       {children}

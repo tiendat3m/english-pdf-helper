@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, verifyToken } from "@clerk/nextjs/server";
 import {
   createSignedUploadUrls,
   getBackupManifestPath,
@@ -13,7 +13,11 @@ const isClerkServerConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABL
 
 type SyncMode = "account" | "fallback";
 
-async function getStoragePrefix(syncCode?: string, syncMode: SyncMode = "account") {
+function toAccountStoragePrefix(userId: string) {
+  return `users/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+}
+
+async function getStoragePrefix(request: Request, syncCode?: string, syncMode: SyncMode = "account") {
   if (syncMode === "fallback") {
     return normalizeSyncCode(syncCode);
   }
@@ -22,7 +26,15 @@ async function getStoragePrefix(syncCode?: string, syncMode: SyncMode = "account
     try {
       const { userId } = await auth();
       if (userId) {
-        return `users/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        return toAccountStoragePrefix(userId);
+      }
+
+      const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+      if (bearerToken && process.env.CLERK_SECRET_KEY) {
+        const payload = await verifyToken(bearerToken, { secretKey: process.env.CLERK_SECRET_KEY });
+        if (payload.sub) {
+          return toAccountStoragePrefix(payload.sub);
+        }
       }
     } catch {
       // Keep account mode separate from fallback sync-code mode.
@@ -35,7 +47,7 @@ async function getStoragePrefix(syncCode?: string, syncMode: SyncMode = "account
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { syncCode?: string; partCount?: number; syncMode?: SyncMode };
-    const storagePrefix = await getStoragePrefix(body.syncCode, body.syncMode);
+    const storagePrefix = await getStoragePrefix(request, body.syncCode, body.syncMode);
     const partCount = normalizePartCount(body.partCount);
     const config = getSupabaseSyncConfig();
     const paths = [

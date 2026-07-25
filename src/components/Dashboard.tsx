@@ -153,7 +153,6 @@ const LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY = "ielts-pdf-notes-legacy-workspace
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
-const ACCOUNT_AUTO_PULL_STORAGE_KEY = "ielts-pdf-notes-account-auto-pull";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
@@ -658,6 +657,7 @@ export default function Dashboard() {
   const autoPushTimerRef = useRef<number | null>(null);
   const isRestoringCloudRef = useRef(false);
   const lastAutoPushFingerprintRef = useRef("");
+  const autoPullAccountsRef = useRef<Set<string>>(new Set());
   const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
@@ -862,9 +862,8 @@ export default function Dashboard() {
       return;
     }
 
-    const autoPullKey = `${ACCOUNT_AUTO_PULL_STORAGE_KEY}:${auth.userId}`;
-    if (!hasPortableData(data) && localStorage.getItem(autoPullKey) !== "done") {
-      localStorage.setItem(autoPullKey, "done");
+    if (!hasPortableData(data) && !autoPullAccountsRef.current.has(auth.userId)) {
+      autoPullAccountsRef.current.add(auth.userId);
       void handleCloudPull({ automatic: true, mode: "account" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1615,9 +1614,17 @@ export default function Dashboard() {
       throw new Error("Enter a sync code first.");
     }
 
+    const token = mode === "account" ? await auth.getToken() : null;
+    if (mode === "account" && !token) {
+      throw new Error("Sign in again before using account cloud.");
+    }
+
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({
         syncMode: mode,
         ...(mode === "fallback" ? { syncCode: code } : {}),
