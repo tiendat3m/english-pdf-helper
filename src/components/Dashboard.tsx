@@ -36,7 +36,7 @@ import StudyWorkspacePanel from "./StudyWorkspacePanel";
 import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
 import { AccountControls, useAppAuth } from "./AppAuthProvider";
-import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, SAMPLE_BOOKS, ZOOM_STEP } from "@/lib/constants";
+import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from "@/lib/constants";
 import {
   appDataBackupToBlob,
   createAppDataBackup,
@@ -1794,8 +1794,8 @@ export default function Dashboard() {
       if (options.mode === "account") {
         setBackupStatus(
           options.automatic
-            ? "No account backup found yet. Use fallback Pull once if your old data used a sync code."
-            : `${message} Use fallback Pull once if your old data used a sync code, then Save account.`
+            ? "No account backup found yet. Import a PDF to start this account."
+            : `${message} Import a PDF to start this account.`
         );
       } else {
         setBackupStatus(message);
@@ -1976,7 +1976,7 @@ export default function Dashboard() {
         progress: book.progress,
         id: book.id
       }))
-    : SAMPLE_BOOKS;
+    : [];
 
   const tabButton = (tab: MainTab, label: string) => (
     <button
@@ -2339,23 +2339,29 @@ export default function Dashboard() {
                       Recent books
                     </div>
                     <div className="mt-3 grid gap-2">
-                      {recentBooks.map((book, index) => (
-                        <button
-                          key={`${book.title}-${index}`}
-                          type="button"
-                          onClick={() => (book.id ? void openBook(book.id) : undefined)}
-                          className="rounded-md border border-stone-200 bg-stone-50 p-3 text-left transition hover:border-sage dark:border-stone-800 dark:bg-stone-900"
-                        >
-                          <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{book.title}</div>
-                          <div className="mt-2 flex items-center justify-between text-xs font-semibold text-stone-500">
-                            <span>Page {book.lastPage}</span>
-                            <span>{formatPercent(book.progress)}</span>
-                          </div>
-                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white dark:bg-stone-800">
-                            <div className="h-full rounded-full bg-sage" style={{ width: formatPercent(book.progress) }} />
-                          </div>
-                        </button>
-                      ))}
+                      {recentBooks.length ? (
+                        recentBooks.map((book, index) => (
+                          <button
+                            key={`${book.title}-${index}`}
+                            type="button"
+                            onClick={() => (book.id ? void openBook(book.id) : undefined)}
+                            className="rounded-md border border-stone-200 bg-stone-50 p-3 text-left transition hover:border-sage dark:border-stone-800 dark:bg-stone-900"
+                          >
+                            <div className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{book.title}</div>
+                            <div className="mt-2 flex items-center justify-between text-xs font-semibold text-stone-500">
+                              <span>Page {book.lastPage}</span>
+                              <span>{formatPercent(book.progress)}</span>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white dark:bg-stone-800">
+                              <div className="h-full rounded-full bg-sage" style={{ width: formatPercent(book.progress) }} />
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="rounded-md border border-dashed border-sage/40 bg-skysoft/50 p-4 text-sm font-semibold leading-6 text-stone-600 dark:border-sage/40 dark:bg-sage/10 dark:text-stone-300">
+                          No books in this account yet. Import a PDF to start learning.
+                        </div>
+                      )}
                     </div>
                   </section>
 

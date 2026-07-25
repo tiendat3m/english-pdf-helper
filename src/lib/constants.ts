@@ -49,9 +49,3 @@ export const PAGE_STATUS_STYLES: Record<PageStatus, string> = {
   done: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-200",
   "need-review": "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-600 dark:bg-rose-950 dark:text-rose-200"
 };
-
-export const SAMPLE_BOOKS = [
-  { title: "English Vocabulary in Use", lastPage: "52", progress: 42 },
-  { title: "Grammar in Use", lastPage: "25", progress: 18 },
-  { title: "Cambridge IELTS 19", lastPage: "Test 2", progress: 36 }
-];
