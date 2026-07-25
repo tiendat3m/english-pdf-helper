@@ -13,7 +13,13 @@ import {
 
 const isClerkServerConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 
-async function getStoragePrefix(syncCode?: string) {
+type SyncMode = "account" | "fallback";
+
+async function getStoragePrefix(syncCode?: string, syncMode: SyncMode = "account") {
+  if (syncMode === "fallback") {
+    return normalizeSyncCode(syncCode);
+  }
+
   if (isClerkServerConfigured) {
     try {
       const { userId } = await auth();
@@ -21,17 +27,17 @@ async function getStoragePrefix(syncCode?: string) {
         return `users/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       }
     } catch {
-      // Fall back to manual sync-code mode below.
+      // Keep account mode separate from fallback sync-code mode.
     }
   }
 
-  return normalizeSyncCode(syncCode);
+  throw new Error("Sign in again before using account cloud.");
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { syncCode?: string; partCount?: number };
-    const storagePrefix = await getStoragePrefix(body.syncCode);
+    const body = (await request.json()) as { syncCode?: string; partCount?: number; syncMode?: SyncMode };
+    const storagePrefix = await getStoragePrefix(body.syncCode, body.syncMode);
     const config = getSupabaseSyncConfig();
 
     if (body.partCount !== undefined) {

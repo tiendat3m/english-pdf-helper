@@ -211,6 +211,8 @@ interface CloudDownloadPartsResponse {
   expiresIn: number;
 }
 
+type CloudSyncMode = "account" | "fallback";
+
 interface CloudBackupManifest {
   version: 1;
   format: "chunked-json";
@@ -863,8 +865,9 @@ export default function Dashboard() {
     const autoPullKey = `${ACCOUNT_AUTO_PULL_STORAGE_KEY}:${auth.userId}`;
     if (!hasPortableData(data) && localStorage.getItem(autoPullKey) !== "done") {
       localStorage.setItem(autoPullKey, "done");
-      setBackupStatus("Signed in. Click Restore to pull your account backup.");
+      void handleCloudPull({ automatic: true, mode: "account" });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
   useEffect(() => {
@@ -885,7 +888,7 @@ export default function Dashboard() {
     }
     autoPushTimerRef.current = window.setTimeout(() => {
       lastAutoPushFingerprintRef.current = fingerprint;
-      void handleCloudPush({ automatic: true });
+      void handleCloudPush({ automatic: true, mode: "account" });
     }, 15_000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
@@ -1599,19 +1602,27 @@ export default function Dashboard() {
 
   async function requestSignedSyncUrl<T>(
     endpoint: "/api/sync/upload-url" | "/api/sync/download-url",
-    options: { partCount?: number } = {}
+    options: { partCount?: number; mode?: CloudSyncMode } = {}
   ) {
+    const mode: CloudSyncMode =
+      options.mode ?? (auth.isAuthEnabled && auth.isSignedIn && !isFallbackSyncOpen ? "account" : "fallback");
     const code = syncCode.trim();
     const canUseAccountCloud = auth.isAuthEnabled && auth.isSignedIn;
-    if (!canUseAccountCloud && !code) {
-      throw new Error("Sign in from the header or enter a sync code in Cloud first.");
+    if (mode === "account" && !canUseAccountCloud) {
+      throw new Error("Sign in from the header before using account cloud.");
     }
-    const shouldUseFallbackCode = !canUseAccountCloud || isFallbackSyncOpen;
+    if (mode === "fallback" && !code) {
+      throw new Error("Enter a sync code first.");
+    }
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...(shouldUseFallbackCode && code ? { syncCode: code } : {}), ...options })
+      body: JSON.stringify({
+        syncMode: mode,
+        ...(mode === "fallback" ? { syncCode: code } : {}),
+        ...(options.partCount !== undefined ? { partCount: options.partCount } : {})
+      })
     });
 
     if (!response.ok) {
@@ -1636,7 +1647,7 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCloudPush(options: { automatic?: boolean } = {}) {
+  async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
     setIsSyncing(true);
     setBackupStatus(options.automatic ? "Account backup syncing..." : "Pushing cloud backup...");
     try {
@@ -1652,7 +1663,7 @@ export default function Dashboard() {
 
       const { partUrls, manifestUrl } = await requestSignedSyncUrl<CloudUploadUrlsResponse>(
         "/api/sync/upload-url",
-        { partCount }
+        { partCount, mode: options.mode }
       );
       if (partUrls.length !== partCount || !manifestUrl) {
         throw new Error("Cloud sync returned an incomplete upload session.");
@@ -1686,11 +1697,13 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCloudPull(options: { automatic?: boolean } = {}) {
+  async function handleCloudPull(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
     setIsSyncing(true);
     setBackupStatus(options.automatic ? "Checking account backup..." : "Pulling cloud backup...");
     try {
-      const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url");
+      const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url", {
+        mode: options.mode
+      });
       let backup: unknown;
 
       if (index.kind === "legacy") {
@@ -1716,7 +1729,8 @@ export default function Dashboard() {
         }
 
         const { partUrls } = await requestSignedSyncUrl<CloudDownloadPartsResponse>("/api/sync/download-url", {
-          partCount: manifest.partCount
+          partCount: manifest.partCount,
+          mode: options.mode
         });
         if (partUrls.length !== manifest.partCount) {
           throw new Error("Cloud sync returned an incomplete download session.");
@@ -1769,7 +1783,16 @@ export default function Dashboard() {
       }
       setBackupStatus(options.automatic ? "Account backup restored." : "Cloud backup pulled.");
     } catch (error) {
-      setBackupStatus(error instanceof Error ? error.message : "Could not pull cloud backup.");
+      const message = error instanceof Error ? error.message : "Could not pull cloud backup.";
+      if (options.mode === "account") {
+        setBackupStatus(
+          options.automatic
+            ? "No account backup found yet. Use fallback Pull once if your old data used a sync code."
+            : `${message} Use fallback Pull once if your old data used a sync code, then Save account.`
+        );
+      } else {
+        setBackupStatus(message);
+      }
     } finally {
       isRestoringCloudRef.current = false;
       setIsSyncing(false);
@@ -2028,7 +2051,7 @@ export default function Dashboard() {
                         onClick={() => {
                           setIsFallbackSyncOpen(false);
                           setOpenHeaderMenu(null);
-                          void handleCloudPush();
+                          void handleCloudPush({ mode: "account" });
                         }}
                         className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-ink px-3 text-xs font-black text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-paper dark:text-stone-950"
                       >
@@ -2042,7 +2065,7 @@ export default function Dashboard() {
                         onClick={() => {
                           setIsFallbackSyncOpen(false);
                           setOpenHeaderMenu(null);
-                          void handleCloudPull();
+                          void handleCloudPull({ mode: "account" });
                         }}
                         className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-black text-stone-700 transition hover:border-sage hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-200"
                       >
@@ -2074,7 +2097,7 @@ export default function Dashboard() {
                         onClick={() => {
                           setIsFallbackSyncOpen(true);
                           setOpenHeaderMenu(null);
-                          void handleCloudPush();
+                          void handleCloudPush({ mode: "fallback" });
                         }}
                         className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
                       >
@@ -2088,7 +2111,7 @@ export default function Dashboard() {
                         onClick={() => {
                           setIsFallbackSyncOpen(true);
                           setOpenHeaderMenu(null);
-                          void handleCloudPull();
+                          void handleCloudPull({ mode: "fallback" });
                         }}
                         className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
                       >
