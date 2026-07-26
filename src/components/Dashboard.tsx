@@ -9,8 +9,6 @@ import {
   CalendarDays,
   ChevronDown,
   CircleDot,
-  CloudDownload,
-  CloudUpload,
   Download,
   Flame,
   GraduationCap,
@@ -148,7 +146,6 @@ interface VocabularyMeta {
 }
 
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
-const SYNC_CODE_STORAGE_KEY = "ielts-pdf-notes-sync-code";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY = "ielts-pdf-notes-legacy-workspace-migrated-to";
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
@@ -212,7 +209,7 @@ interface CloudDownloadPartsResponse {
   expiresIn: number;
 }
 
-type CloudSyncMode = "account" | "fallback";
+type CloudSyncMode = "account";
 
 interface CloudBackupManifest {
   version: 1;
@@ -690,11 +687,8 @@ export default function Dashboard() {
   const [isOrganizingVocabulary, setIsOrganizingVocabulary] = useState(false);
   const [organizeVocabularyStatus, setOrganizeVocabularyStatus] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
-  const [syncCode, setSyncCode] = useState("");
-  const [isSyncCodeLoaded, setIsSyncCodeLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isFallbackSyncOpen, setIsFallbackSyncOpen] = useState(false);
-  const [openHeaderMenu, setOpenHeaderMenu] = useState<"cloud" | "backup" | null>(null);
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<"backup" | null>(null);
   const activeDataWorkspaceKey = getDataWorkspaceKey(auth);
 
   useEffect(() => {
@@ -844,30 +838,12 @@ export default function Dashboard() {
   }, [activeDataWorkspaceKey, editor, isNavigationReady, isWorkspaceOpen]);
 
   useEffect(() => {
-    setSyncCode(localStorage.getItem(SYNC_CODE_STORAGE_KEY) ?? "");
-    setIsSyncCodeLoaded(true);
-  }, []);
-
-  useEffect(() => {
     return () => {
       if (autoPushTimerRef.current !== null) {
         window.clearTimeout(autoPushTimerRef.current);
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!isSyncCodeLoaded) {
-      return;
-    }
-
-    const nextCode = syncCode.trim();
-    if (nextCode) {
-      localStorage.setItem(SYNC_CODE_STORAGE_KEY, nextCode);
-    } else {
-      localStorage.removeItem(SYNC_CODE_STORAGE_KEY);
-    }
-  }, [isSyncCodeLoaded, syncCode]);
 
   useEffect(() => {
     if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading || isSyncing) {
@@ -1624,19 +1600,14 @@ export default function Dashboard() {
     endpoint: "/api/sync/upload-url" | "/api/sync/download-url",
     options: { partCount?: number; mode?: CloudSyncMode } = {}
   ) {
-    const mode: CloudSyncMode =
-      options.mode ?? (auth.isAuthEnabled && auth.isSignedIn && !isFallbackSyncOpen ? "account" : "fallback");
-    const code = syncCode.trim();
+    const mode: CloudSyncMode = options.mode ?? "account";
     const canUseAccountCloud = auth.isAuthEnabled && auth.isSignedIn;
-    if (mode === "account" && !canUseAccountCloud) {
+    if (!canUseAccountCloud) {
       throw new Error("Sign in from the header before using account cloud.");
     }
-    if (mode === "fallback" && !code) {
-      throw new Error("Enter a sync code first.");
-    }
 
-    const token = mode === "account" ? await auth.getToken() : null;
-    if (mode === "account" && !token) {
+    const token = await auth.getToken();
+    if (!token) {
       throw new Error("Sign in again before using account cloud.");
     }
 
@@ -1648,7 +1619,6 @@ export default function Dashboard() {
       },
       body: JSON.stringify({
         syncMode: mode,
-        ...(mode === "fallback" ? { syncCode: code } : {}),
         ...(options.partCount !== undefined ? { partCount: options.partCount } : {})
       })
     });
@@ -1677,7 +1647,9 @@ export default function Dashboard() {
 
   async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode; sourceData?: AppData } = {}) {
     setIsSyncing(true);
-    setBackupStatus(options.automatic ? "Account backup syncing..." : "Pushing cloud backup...");
+    if (!options.automatic) {
+      setBackupStatus("Syncing account backup...");
+    }
     try {
       if (!hasPortableData(options.sourceData ?? data)) {
         throw new Error("No local data to push. Pull or import a backup first.");
@@ -1698,7 +1670,9 @@ export default function Dashboard() {
       }
 
       for (let index = 0; index < partCount; index += 1) {
-        setBackupStatus(`Pushing cloud backup (${index + 1}/${partCount})...`);
+        if (!options.automatic) {
+          setBackupStatus(`Syncing account backup (${index + 1}/${partCount})...`);
+        }
         const start = index * CLOUD_SYNC_CHUNK_BYTES;
         const part = backupBlob.slice(start, Math.min(start + CLOUD_SYNC_CHUNK_BYTES, backupBlob.size));
         await uploadCloudBlob(partUrls[index], part, `${String(index).padStart(4, "0")}.part`);
@@ -1717,10 +1691,16 @@ export default function Dashboard() {
         "manifest.json"
       );
 
-      setBackupStatus(options.automatic ? "Account backup saved." : "Cloud backup pushed.");
+      if (!options.automatic) {
+        setBackupStatus("Account backup synced.");
+      }
       return true;
     } catch (error) {
-      setBackupStatus(error instanceof Error ? error.message : "Could not push cloud backup.");
+      if (!options.automatic) {
+        setBackupStatus(error instanceof Error ? error.message : "Could not sync account backup.");
+      } else {
+        console.warn(error instanceof Error ? error.message : "Could not sync account backup.");
+      }
       return false;
     } finally {
       setIsSyncing(false);
@@ -1729,7 +1709,9 @@ export default function Dashboard() {
 
   async function handleCloudPull(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
     setIsSyncing(true);
-    setBackupStatus(options.automatic ? "Checking account backup..." : "Pulling cloud backup...");
+    if (!options.automatic) {
+      setBackupStatus("Restoring account backup...");
+    }
     try {
       const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url", {
         mode: options.mode
@@ -1768,7 +1750,9 @@ export default function Dashboard() {
 
         const parts: Blob[] = [];
         for (let partIndex = 0; partIndex < partUrls.length; partIndex += 1) {
-          setBackupStatus(`Pulling cloud backup (${partIndex + 1}/${partUrls.length})...`);
+          if (!options.automatic) {
+            setBackupStatus(`Restoring account backup (${partIndex + 1}/${partUrls.length})...`);
+          }
           const partResponse = await fetch(partUrls[partIndex], { cache: "no-store" });
           if (!partResponse.ok) {
             throw new Error(await getResponseMessage(partResponse, "Could not download a cloud backup part."));
@@ -1811,14 +1795,16 @@ export default function Dashboard() {
         }));
         setIsWorkspaceOpen(true);
       }
-      setBackupStatus(options.automatic ? "Account backup restored." : "Cloud backup pulled.");
+      if (!options.automatic) {
+        setBackupStatus("Account backup restored.");
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not pull cloud backup.";
-      if (options.mode === "account") {
+      if (options.automatic) {
+        console.warn(message);
+      } else if (options.mode === "account") {
         setBackupStatus(
-          options.automatic
-            ? "No account backup found yet. Import a PDF to start this account."
-            : `${message} Import a PDF to start this account.`
+          `${message} Import a PDF to start this account.`
         );
       } else {
         setBackupStatus(message);
@@ -2045,114 +2031,7 @@ export default function Dashboard() {
           </nav>
 
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 pl-6 justify-self-end max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
-            {!auth.isSignedIn && <AccountControls />}
-
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setOpenHeaderMenu((current) => (current === "cloud" ? null : "cloud"))}
-                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
-                  openHeaderMenu === "cloud"
-                    ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-100"
-                    : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-                }`}
-              >
-                <CloudUpload className="h-3.5 w-3.5" />
-                Cloud
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-              {openHeaderMenu === "cloud" && (
-                <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border border-stone-200 bg-white p-3 shadow-2xl dark:border-stone-700 dark:bg-stone-900 max-2xl:left-0 max-2xl:right-auto">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[11px] font-black uppercase tracking-[0.2em] text-sage">Cloud Sync</div>
-                      <div className="mt-1 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                        Save this browser or restore a backup into it.
-                      </div>
-                    </div>
-                    <AccountControls />
-                  </div>
-                  {auth.isSignedIn ? (
-                    <div className="mb-3 grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        title="Save this browser data to your account"
-                        disabled={isSyncing}
-                        onClick={() => {
-                          setIsFallbackSyncOpen(false);
-                          setOpenHeaderMenu(null);
-                          void handleCloudPush({ mode: "account" });
-                        }}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-ink px-3 text-xs font-black text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-paper dark:text-stone-950"
-                      >
-                        <CloudUpload className="h-3.5 w-3.5" />
-                        Save account
-                      </button>
-                      <button
-                        type="button"
-                        title="Restore your account backup into this browser"
-                        disabled={isSyncing}
-                        onClick={() => {
-                          setIsFallbackSyncOpen(false);
-                          setOpenHeaderMenu(null);
-                          void handleCloudPull({ mode: "account" });
-                        }}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-black text-stone-700 transition hover:border-sage hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-200"
-                      >
-                        <CloudDownload className="h-3.5 w-3.5" />
-                        Restore
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="mb-3 rounded-lg bg-skysoft px-3 py-2 text-xs font-bold text-stone-700 dark:bg-sage/20 dark:text-stone-200">
-                      Sign in for account cloud, or use a fallback code below.
-                    </div>
-                  )}
-                  <div className="rounded-lg border border-stone-200 bg-paper/70 p-2 dark:border-stone-700 dark:bg-stone-950">
-                    <label className="text-[11px] font-black uppercase tracking-wide text-stone-500 dark:text-stone-400">
-                      Fallback code
-                    </label>
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        value={syncCode}
-                        onChange={(event) => setSyncCode(event.target.value)}
-                        placeholder="sync-code"
-                        aria-label="Fallback cloud sync code"
-                        className="h-9 min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-2 text-xs font-bold text-stone-700 outline-none placeholder:text-stone-400 focus:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
-                      />
-                      <button
-                        type="button"
-                        title="Push with fallback sync code"
-                        disabled={isSyncing}
-                        onClick={() => {
-                          setIsFallbackSyncOpen(true);
-                          setOpenHeaderMenu(null);
-                          void handleCloudPush({ mode: "fallback" });
-                        }}
-                        className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                      >
-                        <CloudUpload className="h-3.5 w-3.5" />
-                        Push
-                      </button>
-                      <button
-                        type="button"
-                        title="Pull with fallback sync code"
-                        disabled={isSyncing}
-                        onClick={() => {
-                          setIsFallbackSyncOpen(true);
-                          setOpenHeaderMenu(null);
-                          void handleCloudPull({ mode: "fallback" });
-                        }}
-                        className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-xs font-black text-stone-500 transition hover:bg-white hover:text-sage disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-300 dark:hover:bg-stone-800"
-                      >
-                        <CloudDownload className="h-3.5 w-3.5" />
-                        Pull
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AccountControls />
 
             <div className="relative shrink-0">
               <button
