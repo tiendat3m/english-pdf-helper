@@ -658,10 +658,11 @@ export default function Dashboard() {
   const suppressUrlSyncRef = useRef(false);
   const lastNavigationKeyRef = useRef("");
   const autoPushTimerRef = useRef<number | null>(null);
+  const autoPullTimerRef = useRef<number | null>(null);
   const isRestoringCloudRef = useRef(false);
   const lastAutoPushFingerprintRef = useRef("");
   const lastAutoPushAttemptFingerprintRef = useRef("");
-  const autoPullAccountsRef = useRef<Set<string>>(new Set());
+  const lastAutoPullAttemptAccountRef = useRef("");
   const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
@@ -731,6 +732,11 @@ export default function Dashboard() {
       window.clearTimeout(autoPushTimerRef.current);
       autoPushTimerRef.current = null;
     }
+    if (autoPullTimerRef.current !== null) {
+      window.clearTimeout(autoPullTimerRef.current);
+      autoPullTimerRef.current = null;
+    }
+    lastAutoPullAttemptAccountRef.current = "";
 
     async function switchWorkspace() {
       setActiveDataWorkspace(workspaceKey);
@@ -842,6 +848,9 @@ export default function Dashboard() {
       if (autoPushTimerRef.current !== null) {
         window.clearTimeout(autoPushTimerRef.current);
       }
+      if (autoPullTimerRef.current !== null) {
+        window.clearTimeout(autoPullTimerRef.current);
+      }
     };
   }, []);
 
@@ -850,10 +859,15 @@ export default function Dashboard() {
       return;
     }
 
-    if (!hasPortableData(data) && !autoPullAccountsRef.current.has(auth.userId)) {
-      autoPullAccountsRef.current.add(auth.userId);
-      void handleCloudPull({ automatic: true, mode: "account" });
+    if (hasPortableData(data) || autoPullTimerRef.current !== null) {
+      return;
     }
+    const retryDelay = lastAutoPullAttemptAccountRef.current === auth.userId ? 15_000 : 0;
+    autoPullTimerRef.current = window.setTimeout(() => {
+      autoPullTimerRef.current = null;
+      lastAutoPullAttemptAccountRef.current = auth.userId ?? "";
+      void handleCloudPull({ automatic: true, mode: "account" });
+    }, retryDelay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
@@ -1798,6 +1812,7 @@ export default function Dashboard() {
       if (!options.automatic) {
         setBackupStatus("Account backup restored.");
       }
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not pull cloud backup.";
       if (options.automatic) {
@@ -1809,6 +1824,7 @@ export default function Dashboard() {
       } else {
         setBackupStatus(message);
       }
+      return false;
     } finally {
       isRestoringCloudRef.current = false;
       setIsSyncing(false);
