@@ -30,16 +30,20 @@ async function getStoragePrefix(request: Request, syncCode?: string, syncMode: S
       if (userId) {
         return toAccountStoragePrefix(userId);
       }
+    } catch {
+      // Fall through to bearer token verification.
+    }
 
-      const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
-      if (bearerToken && process.env.CLERK_SECRET_KEY) {
+    const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (bearerToken && process.env.CLERK_SECRET_KEY) {
+      try {
         const payload = await verifyToken(bearerToken, { secretKey: process.env.CLERK_SECRET_KEY });
         if (payload.sub) {
           return toAccountStoragePrefix(payload.sub);
         }
+      } catch {
+        // Keep account mode separate from fallback sync-code mode.
       }
-    } catch {
-      // Keep account mode separate from fallback sync-code mode.
     }
   }
 
