@@ -154,6 +154,7 @@ const LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY = "ielts-pdf-notes-legacy-workspace
 const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
+const ACCOUNT_SYNC_FINGERPRINT_STORAGE_KEY = "ielts-pdf-notes-account-sync-fingerprint";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
@@ -344,6 +345,10 @@ function readWorkspaceSessionFromUrl(): WorkspaceSession | null {
 
 function getWorkspaceSessionStorageKey(workspaceKey: string) {
   return `${WORKSPACE_SESSION_STORAGE_KEY}:${workspaceKey}`;
+}
+
+function getAccountSyncFingerprintStorageKey(userId: string) {
+  return `${ACCOUNT_SYNC_FINGERPRINT_STORAGE_KEY}:${userId}`;
 }
 
 function readStoredWorkspaceSession(workspaceKey: string): WorkspaceSession | null {
@@ -723,7 +728,9 @@ export default function Dashboard() {
     setData(emptyAppData());
     setBackupStatus(null);
     setOpenHeaderMenu(null);
-    lastAutoPushFingerprintRef.current = "";
+    lastAutoPushFingerprintRef.current = auth.userId
+      ? localStorage.getItem(getAccountSyncFingerprintStorageKey(auth.userId)) ?? ""
+      : "";
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
       autoPushTimerRef.current = null;
@@ -770,9 +777,6 @@ export default function Dashboard() {
       }
       setIsNavigationReady(true);
       setIsLoading(false);
-      if (migrated || movedGuestData) {
-        void handleCloudPush({ automatic: true, mode: "account", sourceData: next });
-      }
     }
 
     void switchWorkspace().catch((error) => {
@@ -785,7 +789,6 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDataWorkspaceKey, auth.isAuthEnabled, auth.isSignedIn, auth.userId]);
 
   useEffect(() => {
@@ -892,10 +895,15 @@ export default function Dashboard() {
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
     }
+    const syncDelay = lastAutoPushFingerprintRef.current ? 3_000 : 0;
     autoPushTimerRef.current = window.setTimeout(() => {
-      lastAutoPushFingerprintRef.current = fingerprint;
-      void handleCloudPush({ automatic: true, mode: "account" });
-    }, 15_000);
+      void handleCloudPush({ automatic: true, mode: "account", sourceData: data }).then((saved) => {
+        if (saved && auth.userId) {
+          lastAutoPushFingerprintRef.current = fingerprint;
+          localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), fingerprint);
+        }
+      });
+    }, syncDelay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
@@ -1704,8 +1712,10 @@ export default function Dashboard() {
       );
 
       setBackupStatus(options.automatic ? "Account backup saved." : "Cloud backup pushed.");
+      return true;
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Could not push cloud backup.");
+      return false;
     } finally {
       setIsSyncing(false);
     }
