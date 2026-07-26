@@ -212,6 +212,53 @@ export async function migrateLegacyDataIntoActiveWorkspace() {
   }
 }
 
+export async function moveWorkspaceDataIntoActiveWorkspace(sourceWorkspaceKey: string) {
+  if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
+    return false;
+  }
+
+  const sanitizedSourceWorkspaceKey = sanitizeWorkspaceKey(sourceWorkspaceKey);
+  if (sanitizedSourceWorkspaceKey === activeWorkspaceKey) {
+    return false;
+  }
+
+  const activeDb = await getDb();
+  const activeData = await readAppDataFromDb(activeDb);
+  if (hasStoredData(activeData)) {
+    return false;
+  }
+
+  const sourceDb = await openWorkspaceDb(getWorkspaceDbName(sanitizedSourceWorkspaceKey));
+  try {
+    const sourceData = await readAppDataFromDb(sourceDb);
+    if (!hasStoredData(sourceData)) {
+      return false;
+    }
+
+    const activeTx = activeDb.transaction(BACKUP_STORE_NAMES, "readwrite");
+    await Promise.all([
+      ...sourceData.books.map((book) => activeTx.objectStore("books").put(book)),
+      ...sourceData.annotations.map((annotation) => activeTx.objectStore("annotations").put(annotation)),
+      ...sourceData.bookmarks.map((bookmark) => activeTx.objectStore("bookmarks").put(bookmark)),
+      ...sourceData.pageStatuses.map((status) => activeTx.objectStore("pageStatuses").put(status)),
+      ...sourceData.vocabulary.map((record) => activeTx.objectStore("vocabulary").put(record)),
+      ...sourceData.activities.map((activity) => activeTx.objectStore("activities").put(activity)),
+      activeTx.done
+    ]);
+
+    const sourceTx = sourceDb.transaction(BACKUP_STORE_NAMES, "readwrite");
+    await Promise.all([...BACKUP_STORE_NAMES.map((storeName) => sourceTx.objectStore(storeName).clear()), sourceTx.done]);
+
+    await addActivity({
+      type: "book-restored",
+      label: "Moved browser data into this account workspace"
+    });
+    return true;
+  } finally {
+    sourceDb.close();
+  }
+}
+
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

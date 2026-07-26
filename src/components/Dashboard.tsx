@@ -47,6 +47,7 @@ import {
   importAppDataBackup,
   loadAppData,
   migrateLegacyDataIntoActiveWorkspace,
+  moveWorkspaceDataIntoActiveWorkspace,
   permanentlyDeleteBooks,
   restoreBook,
   setActiveDataWorkspace,
@@ -736,6 +737,8 @@ export default function Dashboard() {
       if (migrated) {
         localStorage.setItem(LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY, workspaceKey);
       }
+      const movedGuestData =
+        auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await moveWorkspaceDataIntoActiveWorkspace("guest") : false;
       const next = await loadAppData();
       if (cancelled) {
         return;
@@ -762,11 +765,14 @@ export default function Dashboard() {
         setIsWorkspaceOpen(false);
       }
 
-      if (migrated) {
-        setBackupStatus("Existing local data moved into this account workspace.");
+      if (migrated || movedGuestData) {
+        setBackupStatus("Existing browser data moved into this account. Account backup will sync shortly.");
       }
       setIsNavigationReady(true);
       setIsLoading(false);
+      if (migrated || movedGuestData) {
+        void handleCloudPush({ automatic: true, mode: "account", sourceData: next });
+      }
     }
 
     void switchWorkspace().catch((error) => {
@@ -779,6 +785,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDataWorkspaceKey, auth.isAuthEnabled, auth.isSignedIn, auth.userId]);
 
   useEffect(() => {
@@ -1654,11 +1661,11 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
+  async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode; sourceData?: AppData } = {}) {
     setIsSyncing(true);
     setBackupStatus(options.automatic ? "Account backup syncing..." : "Pushing cloud backup...");
     try {
-      if (!hasPortableData(data)) {
+      if (!hasPortableData(options.sourceData ?? data)) {
         throw new Error("No local data to push. Pull or import a backup first.");
       }
 
