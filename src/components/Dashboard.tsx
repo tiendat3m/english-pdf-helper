@@ -923,6 +923,8 @@ export default function Dashboard() {
         if (saved && auth.userId) {
           lastAutoPushFingerprintRef.current = fingerprint;
           localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), fingerprint);
+        } else {
+          lastAutoPushAttemptFingerprintRef.current = "";
         }
       });
     }, syncDelay);
@@ -1792,6 +1794,10 @@ export default function Dashboard() {
         }
         remoteSignature = cloudManifestSignature(manifest);
         if (options.automatic && currentHasData) {
+          if (!manifest.dataFingerprint && !manifest.latestDataUpdatedAt) {
+            lastAutoPullRemoteSignatureRef.current = remoteSignature;
+            return true;
+          }
           if (remoteSignature === lastAutoPullRemoteSignatureRef.current) {
             return true;
           }
