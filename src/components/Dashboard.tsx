@@ -1620,13 +1620,12 @@ export default function Dashboard() {
       throw new Error("Sign in from the header before using account cloud.");
     }
 
-    const token = await auth.getToken();
-    if (!token) {
-      throw new Error("Sign in again before using account cloud.");
-    }
+    const token = await auth.getToken().catch(() => null);
 
     const response = await fetch(endpoint, {
       method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {})
