@@ -217,6 +217,8 @@ interface CloudBackupManifest {
   partCount: number;
   byteLength: number;
   createdAt: string;
+  dataFingerprint?: string;
+  latestDataUpdatedAt?: string;
 }
 
 function csvEscape(value: unknown) {
@@ -559,6 +561,28 @@ function dataSyncFingerprint(data: AppData) {
   ].join(":");
 }
 
+function dataLatestUpdatedAt(data: AppData) {
+  const timestamps = [
+    ...data.books.map((item) => item.updatedAt || item.lastOpenedAt || item.createdAt),
+    ...data.annotations.map((item) => ("updatedAt" in item ? item.updatedAt || item.createdAt : item.createdAt)),
+    ...data.bookmarks.map((item) => item.createdAt),
+    ...data.pageStatuses.map((item) => item.updatedAt),
+    ...data.vocabulary.map((item) => item.updatedAt || item.createdAt),
+    ...data.activities.map((item) => item.createdAt)
+  ].filter(Boolean);
+  return timestamps.sort().at(-1) ?? "";
+}
+
+function cloudManifestSignature(manifest: Partial<CloudBackupManifest>) {
+  return [
+    manifest.createdAt ?? "",
+    manifest.partCount ?? "",
+    manifest.byteLength ?? "",
+    manifest.dataFingerprint ?? "",
+    manifest.latestDataUpdatedAt ?? ""
+  ].join(":");
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -663,6 +687,7 @@ export default function Dashboard() {
   const lastAutoPushFingerprintRef = useRef("");
   const lastAutoPushAttemptFingerprintRef = useRef("");
   const lastAutoPullAttemptAccountRef = useRef("");
+  const lastAutoPullRemoteSignatureRef = useRef("");
   const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
@@ -728,6 +753,7 @@ export default function Dashboard() {
       ? localStorage.getItem(getAccountSyncFingerprintStorageKey(auth.userId)) ?? ""
       : "";
     lastAutoPushAttemptFingerprintRef.current = "";
+    lastAutoPullRemoteSignatureRef.current = "";
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
       autoPushTimerRef.current = null;
@@ -859,10 +885,10 @@ export default function Dashboard() {
       return;
     }
 
-    if (hasPortableData(data) || autoPullTimerRef.current !== null) {
+    if (autoPullTimerRef.current !== null) {
       return;
     }
-    const retryDelay = lastAutoPullAttemptAccountRef.current === auth.userId ? 15_000 : 0;
+    const retryDelay = !hasPortableData(data) || lastAutoPullAttemptAccountRef.current !== auth.userId ? 0 : 20_000;
     autoPullTimerRef.current = window.setTimeout(() => {
       autoPullTimerRef.current = null;
       lastAutoPullAttemptAccountRef.current = auth.userId ?? "";
@@ -1664,9 +1690,11 @@ export default function Dashboard() {
       setBackupStatus("Syncing account backup...");
     }
     try {
-      if (!hasPortableData(options.sourceData ?? data)) {
+      const sourceData = options.sourceData ?? data;
+      if (!hasPortableData(sourceData)) {
         throw new Error("No local data to push. Pull or import a backup first.");
       }
+      const sourceFingerprint = dataSyncFingerprint(sourceData);
 
       const backupBlob = new Blob([JSON.stringify(await createAppDataBackup())], { type: "application/json" });
       const partCount = Math.ceil(backupBlob.size / CLOUD_SYNC_CHUNK_BYTES);
@@ -1696,13 +1724,20 @@ export default function Dashboard() {
         format: "chunked-json",
         partCount,
         byteLength: backupBlob.size,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        dataFingerprint: sourceFingerprint,
+        latestDataUpdatedAt: dataLatestUpdatedAt(sourceData)
       };
       await uploadCloudBlob(
         manifestUrl,
         new Blob([JSON.stringify(manifest)], { type: "application/json" }),
         "manifest.json"
       );
+      if (auth.userId) {
+        lastAutoPushFingerprintRef.current = sourceFingerprint;
+        lastAutoPullRemoteSignatureRef.current = cloudManifestSignature(manifest);
+        localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), sourceFingerprint);
+      }
 
       if (!options.automatic) {
         setBackupStatus("Account backup synced.");
@@ -1726,10 +1761,13 @@ export default function Dashboard() {
       setBackupStatus("Restoring account backup...");
     }
     try {
+      const currentHasData = hasPortableData(data);
+      const currentFingerprint = dataSyncFingerprint(data);
       const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url", {
         mode: options.mode
       });
       let backup: unknown;
+      let remoteSignature = "";
 
       if (index.kind === "legacy") {
         const downloadResponse = await fetch(index.signedUrl, { cache: "no-store" });
@@ -1751,6 +1789,31 @@ export default function Dashboard() {
           manifest.partCount > MAX_CLOUD_SYNC_PARTS
         ) {
           throw new Error("Cloud backup manifest is invalid.");
+        }
+        remoteSignature = cloudManifestSignature(manifest);
+        if (options.automatic && currentHasData) {
+          if (remoteSignature === lastAutoPullRemoteSignatureRef.current) {
+            return true;
+          }
+          if (manifest.dataFingerprint && manifest.dataFingerprint === currentFingerprint) {
+            lastAutoPullRemoteSignatureRef.current = remoteSignature;
+            lastAutoPushFingerprintRef.current = currentFingerprint;
+            if (auth.userId) {
+              localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), currentFingerprint);
+            }
+            return true;
+          }
+
+          const remoteUpdatedAt = Date.parse(manifest.latestDataUpdatedAt || manifest.createdAt || "");
+          const localUpdatedAt = Date.parse(dataLatestUpdatedAt(data));
+          const localLooksNewer =
+            Number.isFinite(localUpdatedAt) &&
+            Number.isFinite(remoteUpdatedAt) &&
+            localUpdatedAt > remoteUpdatedAt &&
+            currentFingerprint !== manifest.dataFingerprint;
+          if (localLooksNewer) {
+            return false;
+          }
         }
 
         const { partUrls } = await requestSignedSyncUrl<CloudDownloadPartsResponse>("/api/sync/download-url", {
@@ -1784,7 +1847,6 @@ export default function Dashboard() {
       }
 
       const incomingHasData = backupHasPortableData(backup);
-      const currentHasData = hasPortableData(data);
       if (!incomingHasData) {
         throw new Error(currentHasData ? "Cloud backup is empty. Local data was kept." : "Cloud backup is empty.");
       }
@@ -1797,6 +1859,12 @@ export default function Dashboard() {
       isRestoringCloudRef.current = true;
       await restoreAppDataBackup(backup, { replace: true });
       const next = await refreshData();
+      const nextFingerprint = dataSyncFingerprint(next);
+      lastAutoPushFingerprintRef.current = nextFingerprint;
+      lastAutoPullRemoteSignatureRef.current = remoteSignature;
+      if (auth.userId) {
+        localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), nextFingerprint);
+      }
       const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
       if (nextActiveBook) {
         setEditor((current) => ({
