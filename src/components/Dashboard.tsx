@@ -663,6 +663,7 @@ export default function Dashboard() {
   const autoPushTimerRef = useRef<number | null>(null);
   const isRestoringCloudRef = useRef(false);
   const lastAutoPushFingerprintRef = useRef("");
+  const lastAutoPushAttemptFingerprintRef = useRef("");
   const autoPullAccountsRef = useRef<Set<string>>(new Set());
   const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
@@ -731,6 +732,7 @@ export default function Dashboard() {
     lastAutoPushFingerprintRef.current = auth.userId
       ? localStorage.getItem(getAccountSyncFingerprintStorageKey(auth.userId)) ?? ""
       : "";
+    lastAutoPushAttemptFingerprintRef.current = "";
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
       autoPushTimerRef.current = null;
@@ -891,12 +893,16 @@ export default function Dashboard() {
     if (fingerprint === lastAutoPushFingerprintRef.current) {
       return;
     }
+    if (fingerprint === lastAutoPushAttemptFingerprintRef.current) {
+      return;
+    }
 
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
     }
     const syncDelay = lastAutoPushFingerprintRef.current ? 3_000 : 0;
     autoPushTimerRef.current = window.setTimeout(() => {
+      lastAutoPushAttemptFingerprintRef.current = fingerprint;
       void handleCloudPush({ automatic: true, mode: "account", sourceData: data }).then((saved) => {
         if (saved && auth.userId) {
           lastAutoPushFingerprintRef.current = fingerprint;
