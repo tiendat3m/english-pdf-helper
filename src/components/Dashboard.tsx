@@ -584,6 +584,24 @@ function cloudManifestSignature(manifest: Partial<CloudBackupManifest>) {
   ].join(":");
 }
 
+function isAccountSyncCoolingDown(retryAfter: number) {
+  return retryAfter > Date.now();
+}
+
+function getAccountSyncRetryDelay(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (
+    message.includes("sign in") ||
+    message.includes("supabase") ||
+    message.includes("upload") ||
+    message.includes("download") ||
+    message.includes("failed")
+  ) {
+    return 2 * 60_000;
+  }
+  return 30_000;
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -689,6 +707,7 @@ export default function Dashboard() {
   const lastAutoPushAttemptFingerprintRef = useRef("");
   const lastAutoPullAttemptAccountRef = useRef("");
   const lastAutoPullRemoteSignatureRef = useRef("");
+  const accountSyncRetryAfterRef = useRef(0);
   const activeDataWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
@@ -756,6 +775,7 @@ export default function Dashboard() {
       : "";
     lastAutoPushAttemptFingerprintRef.current = "";
     lastAutoPullRemoteSignatureRef.current = "";
+    accountSyncRetryAfterRef.current = 0;
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
       autoPushTimerRef.current = null;
@@ -883,7 +903,15 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading || isSyncing) {
+    if (
+      !auth.isAuthEnabled ||
+      !auth.isLoaded ||
+      !auth.isSignedIn ||
+      !auth.userId ||
+      isLoading ||
+      isSyncing ||
+      isAccountSyncCoolingDown(accountSyncRetryAfterRef.current)
+    ) {
       return;
     }
 
@@ -900,7 +928,16 @@ export default function Dashboard() {
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
   useEffect(() => {
-    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading || isSyncing || isRestoringCloudRef.current) {
+    if (
+      !auth.isAuthEnabled ||
+      !auth.isLoaded ||
+      !auth.isSignedIn ||
+      !auth.userId ||
+      isLoading ||
+      isSyncing ||
+      isRestoringCloudRef.current ||
+      isAccountSyncCoolingDown(accountSyncRetryAfterRef.current)
+    ) {
       return;
     }
     if (!hasPortableData(data)) {
@@ -939,7 +976,12 @@ export default function Dashboard() {
     }
 
     function reconcileAccountCloud() {
-      if (document.visibilityState === "hidden" || isSyncing || isRestoringCloudRef.current) {
+      if (
+        document.visibilityState === "hidden" ||
+        isSyncing ||
+        isRestoringCloudRef.current ||
+        isAccountSyncCoolingDown(accountSyncRetryAfterRef.current)
+      ) {
         return;
       }
       void handleCloudPull({ automatic: true, mode: "account" });
@@ -1686,6 +1728,7 @@ export default function Dashboard() {
       },
       body: JSON.stringify({
         syncMode: mode,
+        accountUserId: auth.userId,
         ...(options.partCount !== undefined ? { partCount: options.partCount } : {})
       })
     });
@@ -1766,12 +1809,14 @@ export default function Dashboard() {
         lastAutoPullRemoteSignatureRef.current = cloudManifestSignature(manifest);
         localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), sourceFingerprint);
       }
+      accountSyncRetryAfterRef.current = 0;
 
       if (!options.automatic) {
         setBackupStatus("Account backup synced.");
       }
       return true;
     } catch (error) {
+      accountSyncRetryAfterRef.current = Date.now() + getAccountSyncRetryDelay(error);
       if (!options.automatic) {
         setBackupStatus(error instanceof Error ? error.message : "Could not sync account backup.");
       } else {
@@ -1896,6 +1941,7 @@ export default function Dashboard() {
       const nextFingerprint = dataSyncFingerprint(next);
       lastAutoPushFingerprintRef.current = nextFingerprint;
       lastAutoPullRemoteSignatureRef.current = remoteSignature;
+      accountSyncRetryAfterRef.current = 0;
       if (auth.userId) {
         localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), nextFingerprint);
       }
@@ -1915,6 +1961,7 @@ export default function Dashboard() {
       }
       return true;
     } catch (error) {
+      accountSyncRetryAfterRef.current = Date.now() + getAccountSyncRetryDelay(error);
       const message = error instanceof Error ? error.message : "Could not pull cloud backup.";
       if (options.automatic) {
         console.warn(message);

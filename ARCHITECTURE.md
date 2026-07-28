@@ -65,7 +65,7 @@ IndexedDB is scoped by workspace. Signed-in Clerk users use an account-specific 
 
 Optional cloud sync stores that same snapshot in a private Supabase Storage bucket. The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function.
 
-When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The client does not send or choose that owner id; the API routes read it from the server-side session. On a signed-in browser with local data, the app debounces an automatic account backup push for the active account workspace. A newly opened empty account workspace asks the user to restore rather than automatically replacing local data. Manual sync-code remains as a guest/fallback path for recovery and migration.
+When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The API routes prefer the server-side Clerk session and fall back to the currently signed-in Clerk client id so account sync still works on browsers where the session cookie is not available to the route. Supabase Auth users can stay empty because Clerk owns authentication; Supabase Storage only keeps private backup objects. On a signed-in browser with local data, the app debounces an automatic account backup push for the active account workspace. A newly opened empty account workspace tries to restore the account backup automatically before showing the empty import state.
 
 Configure:
 
@@ -77,9 +77,7 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_or_pk_live...
 CLERK_SECRET_KEY=sk_test_or_sk_live...
 ```
 
-The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<owner>/parts/` and committed by uploading `<owner>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier `<sync-code>/backup.json` format.
-
-Use a long, hard-to-guess sync code for fallback mode. `Push` overwrites that cloud snapshot; `Pull` replaces only the currently active local workspace after validating that the incoming backup is not empty.
+The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<owner>/parts/` and committed by uploading `<owner>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier single-file `backup.json` format for older backups.
 
 ## AI Study Coach
 

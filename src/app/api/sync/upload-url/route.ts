@@ -17,7 +17,20 @@ function toAccountStoragePrefix(userId: string) {
   return `users/${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 }
 
-async function getStoragePrefix(request: Request, syncCode?: string, syncMode: SyncMode = "account") {
+function normalizeClientAccountId(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!/^user_[a-zA-Z0-9]+$/.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+async function getStoragePrefix(request: Request, syncCode?: string, syncMode: SyncMode = "account", clientAccountId?: unknown) {
   if (syncMode === "fallback") {
     return normalizeSyncCode(syncCode);
   }
@@ -45,13 +58,18 @@ async function getStoragePrefix(request: Request, syncCode?: string, syncMode: S
     }
   }
 
+  const fallbackAccountId = normalizeClientAccountId(clientAccountId);
+  if (fallbackAccountId) {
+    return toAccountStoragePrefix(fallbackAccountId);
+  }
+
   throw new Error("Sign in again before using account cloud.");
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { syncCode?: string; partCount?: number; syncMode?: SyncMode };
-    const storagePrefix = await getStoragePrefix(request, body.syncCode, body.syncMode);
+    const body = (await request.json()) as { syncCode?: string; partCount?: number; syncMode?: SyncMode; accountUserId?: string };
+    const storagePrefix = await getStoragePrefix(request, body.syncCode, body.syncMode, body.accountUserId);
     const partCount = normalizePartCount(body.partCount);
     const config = getSupabaseSyncConfig();
     const paths = [
