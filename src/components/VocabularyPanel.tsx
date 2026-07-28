@@ -297,21 +297,21 @@ export default function VocabularyPanel({
   }, [currentCard, onStatusChange, viewMode]);
 
   return (
-    <main className="min-h-screen p-5 md:p-8">
+    <main className="min-h-screen p-4 md:p-8">
       <div className="mx-auto max-w-[1320px]">
         <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Anki-inspired review</p>
             <h1 className="mt-2 text-3xl font-black text-stone-950 dark:text-stone-50">Vocabulary</h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
             {isAddingWord && (
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
                   submitNewWord();
                 }}
-                className="flex items-center gap-2 rounded-lg border border-sage/40 bg-white px-2 py-1.5 shadow-sm dark:border-sage/60 dark:bg-stone-900"
+                className="col-span-2 flex items-center gap-2 rounded-lg border border-sage/40 bg-white px-2 py-1.5 shadow-sm dark:border-sage/60 dark:bg-stone-900"
               >
                 <input
                   autoFocus
@@ -332,7 +332,7 @@ export default function VocabularyPanel({
             <button
               type="button"
               onClick={() => setIsAddingWord((current) => !current)}
-              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
             >
               <Plus className="h-4 w-4" />
               Add word
@@ -341,7 +341,7 @@ export default function VocabularyPanel({
               type="button"
               disabled={isOrganizingVocabulary}
               onClick={onOrganizeVocabulary}
-              className="inline-flex items-center gap-2 rounded-lg border border-sage/30 bg-skysoft px-3 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-sage disabled:cursor-wait disabled:opacity-60 dark:border-sage/50 dark:bg-sage/20 dark:text-stone-100"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-sage/30 bg-skysoft px-3 py-2 text-sm font-bold text-stone-800 shadow-sm transition hover:border-sage disabled:cursor-wait disabled:opacity-60 dark:border-sage/50 dark:bg-sage/20 dark:text-stone-100"
             >
               <Sparkles className="h-4 w-4" />
               {isOrganizingVocabulary ? "Organizing" : "Organize"}
@@ -349,12 +349,12 @@ export default function VocabularyPanel({
             <button
               type="button"
               onClick={onExportCsv}
-              className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100"
             >
               <Download className="h-4 w-4" />
               CSV
             </button>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
+            <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-bold text-stone-700 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
               <Upload className="h-4 w-4" />
               Import
               <input
@@ -407,13 +407,13 @@ export default function VocabularyPanel({
                 ))}
               </div>
             )}
-            <label className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+            <label className="col-span-2 flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 sm:col-span-1">
               <Search className="h-4 w-4" />
               <input
                 value={search}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder="Search words"
-                className="w-44 bg-transparent outline-none"
+                className="min-w-0 flex-1 bg-transparent outline-none sm:w-44"
               />
             </label>
             <select

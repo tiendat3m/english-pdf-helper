@@ -21,6 +21,7 @@ import {
   PenLine,
   Play,
   RotateCcw,
+  Search,
   Sparkles,
   Star,
   Target,
@@ -715,6 +716,7 @@ export default function Dashboard() {
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [openHeaderMenu, setOpenHeaderMenu] = useState<"backup" | null>(null);
+  const [globalSearch, setGlobalSearch] = useState("");
   const activeDataWorkspaceKey = getDataWorkspaceKey(auth);
 
   useEffect(() => {
@@ -930,6 +932,30 @@ export default function Dashboard() {
     }, syncDelay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
+
+  useEffect(() => {
+    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
+      return;
+    }
+
+    function reconcileAccountCloud() {
+      if (document.visibilityState === "hidden" || isSyncing || isRestoringCloudRef.current) {
+        return;
+      }
+      void handleCloudPull({ automatic: true, mode: "account" });
+    }
+
+    const interval = window.setInterval(reconcileAccountCloud, 60_000);
+    window.addEventListener("focus", reconcileAccountCloud);
+    document.addEventListener("visibilitychange", reconcileAccountCloud);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", reconcileAccountCloud);
+      document.removeEventListener("visibilitychange", reconcileAccountCloud);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, isLoading, isSyncing]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", editor.theme === "dark");
@@ -1762,6 +1788,7 @@ export default function Dashboard() {
     if (!options.automatic) {
       setBackupStatus("Restoring account backup...");
     }
+    let shouldPushLocalAfterPull = false;
     try {
       const currentHasData = hasPortableData(data);
       const currentFingerprint = dataSyncFingerprint(data);
@@ -1796,6 +1823,7 @@ export default function Dashboard() {
         if (options.automatic && currentHasData) {
           if (!manifest.dataFingerprint && !manifest.latestDataUpdatedAt) {
             lastAutoPullRemoteSignatureRef.current = remoteSignature;
+            shouldPushLocalAfterPull = true;
             return true;
           }
           if (remoteSignature === lastAutoPullRemoteSignatureRef.current) {
@@ -1901,6 +1929,11 @@ export default function Dashboard() {
     } finally {
       isRestoringCloudRef.current = false;
       setIsSyncing(false);
+      if (shouldPushLocalAfterPull && hasPortableData(data)) {
+        window.setTimeout(() => {
+          void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
+        }, 300);
+      }
     }
   }
 
@@ -1937,7 +1970,20 @@ export default function Dashboard() {
     }
 
     const targets = activeData.vocabulary
-      .filter((record) => !record.topic?.trim() || !record.subtopic?.trim() || !(record.tags ?? []).length || !record.difficulty)
+      .filter(
+        (record) =>
+          !record.ipa?.trim() ||
+          !record.partOfSpeech?.trim() ||
+          !record.meaning?.trim() ||
+          !record.vietnameseMeaning?.trim() ||
+          !record.synonyms?.trim() ||
+          !record.antonyms?.trim() ||
+          !record.example?.trim() ||
+          !record.topic?.trim() ||
+          !record.subtopic?.trim() ||
+          !(record.tags ?? []).length ||
+          !record.difficulty
+      )
       .slice(0, 20);
 
     if (!targets.length) {
@@ -1962,6 +2008,13 @@ export default function Dashboard() {
         );
         const next: VocabularyRecord = {
           ...record,
+          ipa: record.ipa?.trim() || result.ipa || "",
+          partOfSpeech: record.partOfSpeech?.trim() || result.partOfSpeech || "",
+          meaning: record.meaning?.trim() || result.meaning || result.summary || "",
+          vietnameseMeaning: record.vietnameseMeaning?.trim() || result.vietnamese || "",
+          synonyms: record.synonyms?.trim() || result.synonyms || "",
+          antonyms: record.antonyms?.trim() || result.antonyms || "",
+          example: record.example?.trim() || result.example || "",
           topic: record.topic?.trim() || result.topic || "General",
           subtopic: record.subtopic?.trim() || result.subtopic || result.topic || "Vocabulary",
           tags: (record.tags ?? []).length ? record.tags : result.tags,
@@ -2075,6 +2128,85 @@ export default function Dashboard() {
         id: book.id
       }))
     : [];
+  const globalSearchResults = (() => {
+    const query = globalSearch.trim().toLowerCase();
+    if (query.length < 2) {
+      return [];
+    }
+
+    const results: Array<{
+      id: string;
+      type: "Book" | "Vocabulary" | "Note" | "Page";
+      title: string;
+      detail: string;
+      onOpen: () => void;
+    }> = [];
+
+    activeBooks.forEach((book) => {
+      const haystack = `${book.title} ${book.fileName}`.toLowerCase();
+      if (haystack.includes(query)) {
+        results.push({
+          id: `book-${book.id}`,
+          type: "Book",
+          title: book.title,
+          detail: `Continue on page ${book.lastPage}`,
+          onOpen: () => void openBookAtPage(book.id, book.lastPage)
+        });
+      }
+    });
+
+    activeData.vocabulary.forEach((item) => {
+      const haystack =
+        `${item.word} ${item.ipa ?? ""} ${item.partOfSpeech ?? ""} ${item.meaning} ${item.vietnameseMeaning ?? ""} ${item.synonyms ?? ""} ${item.antonyms ?? ""} ${item.topic ?? ""} ${item.subtopic ?? ""} ${(item.tags ?? []).join(" ")} ${item.example} ${item.sourceBookTitle}`.toLowerCase();
+      if (haystack.includes(query)) {
+        results.push({
+          id: `vocab-${item.id}`,
+          type: "Vocabulary",
+          title: item.word,
+          detail: `${item.vietnameseMeaning || item.meaning || "Meaning pending"}${item.sourcePage ? ` - page ${item.sourcePage}` : ""}`,
+          onOpen: () => {
+            setVocabSearch(item.word);
+            switchTab("vocabulary");
+          }
+        });
+      }
+    });
+
+    activeData.annotations.forEach((annotation) => {
+      if (annotation.type !== "note" && annotation.type !== "highlight") {
+        return;
+      }
+      const text = annotation.type === "note" ? annotation.text : annotation.selectedText;
+      const book = bookById.get(annotation.bookId);
+      if (!text?.toLowerCase().includes(query) || !book) {
+        return;
+      }
+      results.push({
+        id: `annotation-${annotation.id}`,
+        type: annotation.type === "note" ? "Note" : "Page",
+        title: annotation.type === "note" ? `Note on page ${annotation.pageNumber}` : `Highlight on page ${annotation.pageNumber}`,
+        detail: `${book.title}: ${text.slice(0, 110)}`,
+        onOpen: () => void openBookAtPage(annotation.bookId, annotation.pageNumber)
+      });
+    });
+
+    activeData.pageStatuses.forEach((status) => {
+      const book = bookById.get(status.bookId);
+      const label = status.status.replace("-", " ");
+      if (!book || !`${book.title} ${label} page ${status.pageNumber}`.toLowerCase().includes(query)) {
+        return;
+      }
+      results.push({
+        id: `status-${status.id}`,
+        type: "Page",
+        title: `${label} page ${status.pageNumber}`,
+        detail: book.title,
+        onOpen: () => void openBookAtPage(status.bookId, status.pageNumber)
+      });
+    });
+
+    return results.slice(0, 12);
+  })();
 
   const tabButton = (tab: MainTab, label: string) => (
     <button
@@ -2101,7 +2233,7 @@ export default function Dashboard() {
         editor.theme === "warm" ? "bg-[#f9f6ee]" : editor.theme === "dark" ? "bg-stone-950" : "bg-slate-50"
       }`}
     >
-      <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
+      <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-3 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86 md:px-4">
         <div className="mx-auto grid w-full max-w-[1580px] grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-x-8 gap-y-3 max-2xl:grid-cols-1">
           <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-3" title="Back to Learn home">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-sage text-white shadow-tool">
@@ -2122,7 +2254,7 @@ export default function Dashboard() {
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 pl-6 justify-self-end max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
             <AccountControls />
 
-            <div className="relative shrink-0">
+            <div className="relative hidden shrink-0 sm:block">
               <button
                 type="button"
                 onClick={() => setOpenHeaderMenu((current) => (current === "backup" ? null : "backup"))}
@@ -2283,6 +2415,46 @@ export default function Dashboard() {
                     accent="rose"
                   />
                 </div>
+
+                <section className="mt-5 rounded-lg border border-stone-200 bg-paper/65 p-3 dark:border-stone-800 dark:bg-stone-900/80">
+                  <label className="flex items-center gap-2 rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-950">
+                    <Search className="h-4 w-4 shrink-0 text-sage" />
+                    <input
+                      value={globalSearch}
+                      onChange={(event) => setGlobalSearch(event.target.value)}
+                      placeholder="Search books, vocabulary, notes, weak pages..."
+                      className="min-w-0 flex-1 bg-transparent font-semibold outline-none"
+                    />
+                  </label>
+                  {globalSearch.trim().length >= 2 && (
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {globalSearchResults.length ? (
+                        globalSearchResults.map((result) => (
+                          <button
+                            key={result.id}
+                            type="button"
+                            onClick={result.onOpen}
+                            className="rounded-md border border-stone-200 bg-white p-3 text-left transition hover:border-sage hover:bg-skysoft/60 dark:border-stone-800 dark:bg-stone-950 dark:hover:bg-stone-900"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-skysoft px-2 py-0.5 text-[10px] font-black uppercase text-stone-700 dark:bg-sage/20 dark:text-stone-100">
+                                {result.type}
+                              </span>
+                              <span className="truncate text-sm font-black text-stone-900 dark:text-stone-50">{result.title}</span>
+                            </div>
+                            <div className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-stone-500 dark:text-stone-400">
+                              {result.detail}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="rounded-md border border-dashed border-stone-200 bg-white p-3 text-sm font-semibold text-stone-500 dark:border-stone-800 dark:bg-stone-950 dark:text-stone-400">
+                          No matching study item yet.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
 
                 <div className="mt-5 rounded-lg border border-stone-200 bg-paper/70 p-4 dark:border-stone-800 dark:bg-stone-900/80">
                   <div className="flex items-center justify-between text-sm font-black text-stone-800 dark:text-stone-100">
