@@ -1973,9 +1973,11 @@ export default function Dashboard() {
           if (!manifest.dataFingerprint && !manifest.latestDataUpdatedAt) {
             lastAutoPullRemoteSignatureRef.current = remoteSignature;
             shouldPushLocalAfterPull = true;
+            setAccountSyncStatus("Repairing account backup...");
             return true;
           }
           if (remoteSignature === lastAutoPullRemoteSignatureRef.current) {
+            setAccountSyncStatus("Account synced.");
             return true;
           }
           if (manifest.dataFingerprint && manifest.dataFingerprint === currentFingerprint) {
@@ -1984,6 +1986,7 @@ export default function Dashboard() {
             if (auth.userId) {
               localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), currentFingerprint);
             }
+            setAccountSyncStatus("Account synced.");
             return true;
           }
 
@@ -1996,6 +1999,7 @@ export default function Dashboard() {
             currentFingerprint !== manifest.dataFingerprint;
           if (localLooksNewer) {
             shouldPushLocalAfterPull = true;
+            setAccountSyncStatus("Repairing account backup...");
             return true;
           }
         }
