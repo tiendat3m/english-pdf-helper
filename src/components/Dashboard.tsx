@@ -973,7 +973,7 @@ export default function Dashboard() {
     if (autoPullTimerRef.current !== null) {
       return;
     }
-    const retryDelay = !hasPortableData(data) || lastAutoPullAttemptAccountRef.current !== auth.userId ? 0 : 20_000;
+    const retryDelay = !hasActiveBooks(data) || lastAutoPullAttemptAccountRef.current !== auth.userId ? 0 : 20_000;
     autoPullTimerRef.current = window.setTimeout(() => {
       autoPullTimerRef.current = null;
       lastAutoPullAttemptAccountRef.current = auth.userId ?? "";
@@ -995,7 +995,7 @@ export default function Dashboard() {
     ) {
       return;
     }
-    if (!hasPortableData(data)) {
+    if (!hasActiveBooks(data)) {
       return;
     }
 
@@ -1063,7 +1063,7 @@ export default function Dashboard() {
       accountSyncRetryAfterRef.current = 0;
       setAccountSyncStatus("Back online. Syncing account...");
       void handleCloudPull({ automatic: true, mode: "account" }).then(() => {
-        if (hasPortableData(data)) {
+        if (hasActiveBooks(data)) {
           void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
         }
       });
@@ -1969,14 +1969,17 @@ export default function Dashboard() {
           throw new Error("Cloud backup manifest is invalid.");
         }
         remoteSignature = cloudManifestSignature(manifest);
-        if (options.automatic && currentHasData) {
+        if (options.automatic && currentHasBooksBeforePull) {
           if (!manifest.dataFingerprint && !manifest.latestDataUpdatedAt) {
             lastAutoPullRemoteSignatureRef.current = remoteSignature;
             shouldPushLocalAfterPull = true;
             setAccountSyncStatus("Repairing account backup...");
             return true;
           }
-          if (remoteSignature === lastAutoPullRemoteSignatureRef.current) {
+          if (
+            remoteSignature === lastAutoPullRemoteSignatureRef.current &&
+            currentFingerprint === lastAutoPushFingerprintRef.current
+          ) {
             setAccountSyncStatus("Account synced.");
             return true;
           }
