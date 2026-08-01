@@ -1905,7 +1905,8 @@ export default function Dashboard() {
             localUpdatedAt > remoteUpdatedAt &&
             currentFingerprint !== manifest.dataFingerprint;
           if (localLooksNewer) {
-            return false;
+            shouldPushLocalAfterPull = true;
+            return true;
           }
         }
 
@@ -2303,27 +2304,29 @@ export default function Dashboard() {
       }`}
     >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-3 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86 md:px-4">
-        <div className="mx-auto grid w-full max-w-[1580px] grid-cols-[minmax(220px,1fr)_auto_minmax(220px,1fr)] items-center gap-x-8 gap-y-3 max-2xl:grid-cols-1">
-          <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-3" title="Back to Learn home">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-sage text-white shadow-tool">
-              <GraduationCap className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 text-left">
-              <div className="truncate text-lg font-black text-stone-950 dark:text-stone-50">IELTS PDF Notes</div>
-              <div className="text-xs font-semibold text-stone-500 dark:text-stone-400">Band 8 learning workspace</div>
-            </div>
-          </button>
+        <div className="mx-auto flex w-full max-w-[1580px] flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button type="button" onClick={goHome} className="flex min-w-0 items-center gap-3" title="Back to Learn home">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-sage text-white shadow-tool">
+                <GraduationCap className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="truncate text-lg font-black text-stone-950 dark:text-stone-50">IELTS PDF Notes</div>
+                <div className="text-xs font-semibold text-stone-500 dark:text-stone-400">Band 8 learning workspace</div>
+              </div>
+            </button>
 
-          <nav className="flex justify-self-center rounded-lg bg-stone-100 p-1 dark:bg-stone-900 max-2xl:justify-self-start">
-            {tabButton("learn", "Learn")}
-            {tabButton("vocabulary", "Vocabulary")}
-            {tabButton("progress", "Progress")}
-          </nav>
+            <nav className="order-3 flex rounded-lg bg-stone-100 p-1 dark:bg-stone-900 sm:order-none">
+              {tabButton("learn", "Learn")}
+              {tabButton("vocabulary", "Vocabulary")}
+              {tabButton("progress", "Progress")}
+            </nav>
 
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 pl-6 justify-self-end max-2xl:w-full max-2xl:justify-start max-2xl:pl-0">
             <AccountControls />
+          </div>
 
-            <div className="relative hidden shrink-0 sm:block">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+            <div className="relative hidden shrink-0 lg:block">
               <button
                 type="button"
                 onClick={() => setOpenHeaderMenu((current) => (current === "backup" ? null : "backup"))}
@@ -2367,35 +2370,34 @@ export default function Dashboard() {
               )}
             </div>
 
-              <button
-                type="button"
-                title="AI provider settings"
-                onClick={() => setIsAiSettingsOpen(true)}
-                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                AI: {AI_PROVIDER_LABELS[aiSettings.provider]}
-              </button>
-              <div className="flex shrink-0 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
-                {(["light", "warm", "dark"] as const).map((theme) => (
-                  <button
-                    key={theme}
-                    type="button"
-                    title={`Use ${theme} theme`}
-                    onClick={() => setEditor((current) => ({ ...current, theme }))}
-                    className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
-                      editor.theme === theme
-                        ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
-                        : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
-                    }`}
-                  >
-                    {theme}
-                  </button>
-                ))}
-              </div>
+            <button
+              type="button"
+              title="AI provider settings"
+              onClick={() => setIsAiSettingsOpen(true)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              AI: {AI_PROVIDER_LABELS[aiSettings.provider]}
+            </button>
+            <div className="flex shrink-0 rounded-lg border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+              {(["light", "warm", "dark"] as const).map((theme) => (
+                <button
+                  key={theme}
+                  type="button"
+                  title={`Use ${theme} theme`}
+                  onClick={() => setEditor((current) => ({ ...current, theme }))}
+                  className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
+                    editor.theme === theme
+                      ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                      : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  {theme}
+                </button>
+              ))}
             </div>
             {backupStatus && (
-              <div className={`col-span-full truncate text-center text-xs font-semibold xl:text-right ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
+              <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
                 {backupStatus}
               </div>
             )}
@@ -2411,6 +2413,7 @@ export default function Dashboard() {
                 }
               }}
             />
+          </div>
         </div>
       </header>
 
