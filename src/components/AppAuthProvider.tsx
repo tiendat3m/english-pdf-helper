@@ -91,7 +91,7 @@ function ClerkAccountControls() {
       <UserButton />
       <div className="hidden min-w-0 sm:block">
         <div className="max-w-28 truncate text-xs font-black text-stone-700 dark:text-stone-100">{auth.userLabel}</div>
-        <div className="text-[10px] font-bold uppercase tracking-wide text-sage">Synced account</div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-sage">Account data</div>
       </div>
     </div>
   );
@@ -101,7 +101,7 @@ export function AccountControls() {
   if (!isClerkEnabled) {
     return (
       <div
-        title="Add Clerk environment variables to enable account cloud sync"
+        title="Add Clerk environment variables to enable account data"
         className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
       >
         Guest

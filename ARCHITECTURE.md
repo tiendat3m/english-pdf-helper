@@ -59,13 +59,15 @@ Most interactions update React state optimistically, then persist to IndexedDB. 
 
 IndexedDB is scoped by workspace. Signed-in Clerk users use an account-specific database name derived from the Clerk user id, while signed-out use stays in a separate guest database. Logging out therefore hides the signed-in workspace, and logging into another account opens a different local database. The older pre-account database is migrated once into the first signed-in account workspace that claims it, then left dormant for recovery.
 
-## Backup And Cross-Device Sync
+## Account Data And Backup
 
 `src/lib/db.ts` serializes the complete IndexedDB state, including PDF blobs, into a versioned JSON backup. File export/import remains available for offline backup.
 
-Optional account sync stores that same snapshot in a private Supabase Storage bucket. The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function. The UI treats this as a background account feature, not a manual Push/Pull workflow; the visible Local backup menu is only for desktop JSON export/import recovery.
+When Clerk auth is configured, the signed-in account owns the workspace data. The app stores a complete account snapshot in a private Supabase Storage bucket, not in Supabase database tables. This is intentional because PDF blobs can be tens of megabytes; Postgres tables should not hold those files. Supabase Auth users can also stay empty because Clerk owns login. To inspect account data in Supabase, open Storage and check the `ielts-sync` bucket.
 
-When Clerk is configured, sync paths are owned by the signed-in account under `users/{clerkUserId}/...`. The API routes prefer the server-side Clerk session and fall back to the currently signed-in Clerk client id so account sync still works on browsers where the session cookie is not available to the route. Supabase Auth users can stay empty because Clerk owns authentication; Supabase Storage only keeps private backup objects. On a signed-in browser with local data, the app debounces an automatic account backup push for the active account workspace. A newly opened empty account workspace tries to restore the account backup automatically before showing the empty import state. If cloud is empty but the current browser already has account data, the app seeds cloud automatically. If the current browser has newer local data than cloud, it repairs cloud by pushing the local account workspace. Offline edits remain in IndexedDB and retry when the browser reconnects.
+The server-only routes under `src/app/api/sync` create short-lived signed upload/download URLs; the browser then transfers the potentially large backup directly to Supabase instead of sending PDF data through a Vercel Function. The UI treats this as background account persistence, not a manual Push/Pull workflow; the visible Local backup menu is only for desktop JSON export/import recovery.
+
+When Clerk is configured, account paths are owned by the signed-in account under `users/{clerkUserId}/...`. The API routes prefer the server-side Clerk session and fall back to the currently signed-in Clerk client id so account persistence still works on browsers where the session cookie is not available to the route. On a signed-in browser with local data, the app debounces an automatic account backup for the active account workspace. A newly opened empty account workspace tries to restore the account backup automatically before showing the empty import state. If the account backup is empty but the current browser already has account data, the app seeds the account backup automatically. If the current browser has newer local data than the stored account backup, it repairs the account backup by saving the local account workspace. Offline edits remain in IndexedDB and retry when the browser reconnects.
 
 The split Study Board is available on mobile as a stacked panel and on desktop as a side panel. Daily session task completion is stored per workspace/day so a refresh does not reset the learner's plan.
 
@@ -79,7 +81,7 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_or_pk_live...
 CLERK_SECRET_KEY=sk_test_or_sk_live...
 ```
 
-The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<owner>/parts/` and committed by uploading `<owner>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Pull still supports the earlier single-file `backup.json` format for older backups.
+The bucket is created as private on first use when the service role has Storage permissions. New backups are split into 8 MiB objects under `<owner>/parts/` and committed by uploading `<owner>/manifest.json` last. This avoids the provider's per-object size limit while keeping the service-role key off the client. Restore still supports the earlier single-file `backup.json` format for older backups.
 
 ## AI Study Coach
 

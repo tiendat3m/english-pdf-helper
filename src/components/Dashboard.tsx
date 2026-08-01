@@ -645,6 +645,17 @@ function isMissingAccountBackupError(error: unknown) {
   );
 }
 
+function isAccountDataAttentionStatus(status: string) {
+  const normalized = status.toLowerCase();
+  return (
+    normalized.includes("offline") ||
+    normalized.includes("paused") ||
+    normalized.includes("failed") ||
+    normalized.includes("could not") ||
+    normalized.includes("sign in")
+  );
+}
+
 function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
@@ -878,7 +889,7 @@ export default function Dashboard() {
       }
 
       if (migrated || movedGuestData || recoveredBrowserBooks) {
-        setBackupStatus("Existing browser data moved into this account. Account backup will sync shortly.");
+        setBackupStatus("Existing browser data moved into this account. Account data will save shortly.");
       }
       setIsNavigationReady(true);
       setIsLoading(false);
@@ -1061,7 +1072,7 @@ export default function Dashboard() {
 
     function handleOnline() {
       accountSyncRetryAfterRef.current = 0;
-      setAccountSyncStatus("Back online. Syncing account...");
+      setAccountSyncStatus("Back online. Saving account data...");
       void handleCloudPull({ automatic: true, mode: "account" }).then(() => {
         if (hasActiveBooks(data)) {
           void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
@@ -1800,10 +1811,10 @@ export default function Dashboard() {
     const mode: CloudSyncMode = options.mode ?? "account";
     const canUseAccountCloud = auth.isAuthEnabled && auth.isSignedIn;
     if (!canUseAccountCloud) {
-      throw new Error("Sign in from the header before using account cloud.");
+      throw new Error("Sign in from the header before using account data.");
     }
     if (typeof navigator !== "undefined" && !navigator.onLine) {
-      throw new Error("Offline. Changes are saved locally and will sync when online.");
+      throw new Error("Offline. Changes are saved locally and will upload when online.");
     }
 
     const token = await auth.getToken().catch(() => null);
@@ -1824,7 +1835,7 @@ export default function Dashboard() {
     });
 
     if (!response.ok) {
-      throw new Error(await getResponseMessage(response, "Could not start cloud sync."));
+      throw new Error(await getResponseMessage(response, "Could not open account data."));
     }
 
     return (await response.json()) as T;
@@ -1841,26 +1852,26 @@ export default function Dashboard() {
     });
 
     if (!response.ok) {
-      throw new Error(await getResponseMessage(response, "Could not upload cloud backup."));
+      throw new Error(await getResponseMessage(response, "Could not save account data."));
     }
   }
 
   async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode; sourceData?: AppData } = {}) {
     setIsSyncing(true);
     if (options.automatic) {
-      setAccountSyncStatus("Syncing account...");
+      setAccountSyncStatus("Saving account data...");
     }
     if (!options.automatic) {
-      setBackupStatus("Syncing account backup...");
+      setBackupStatus("Saving account backup...");
     }
     try {
       const sourceData = options.sourceData ?? data;
       if (options.automatic && !hasActiveBooks(sourceData)) {
-        setAccountSyncStatus("Account sync waiting for a PDF book.");
+        setAccountSyncStatus("Account data waiting for a PDF book.");
         return false;
       }
       if (!hasPortableData(sourceData)) {
-        throw new Error("No local data to push. Pull or import a backup first.");
+        throw new Error("No local account data yet. Import a PDF first.");
       }
       const sourceFingerprint = dataSyncFingerprint(sourceData);
 
@@ -1875,12 +1886,12 @@ export default function Dashboard() {
         { partCount, mode: options.mode }
       );
       if (partUrls.length !== partCount || !manifestUrl) {
-        throw new Error("Cloud sync returned an incomplete upload session.");
+        throw new Error("Account data upload session is incomplete.");
       }
 
       for (let index = 0; index < partCount; index += 1) {
         if (!options.automatic) {
-          setBackupStatus(`Syncing account backup (${index + 1}/${partCount})...`);
+          setBackupStatus(`Saving account backup (${index + 1}/${partCount})...`);
         }
         const start = index * CLOUD_SYNC_CHUNK_BYTES;
         const part = backupBlob.slice(start, Math.min(start + CLOUD_SYNC_CHUNK_BYTES, backupBlob.size));
@@ -1907,19 +1918,19 @@ export default function Dashboard() {
         localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), sourceFingerprint);
       }
       accountSyncRetryAfterRef.current = 0;
-      setAccountSyncStatus("Account synced.");
+      setAccountSyncStatus("Account data saved.");
 
       if (!options.automatic) {
-        setBackupStatus("Account backup synced.");
+        setBackupStatus("Account backup saved.");
       }
       return true;
     } catch (error) {
       accountSyncRetryAfterRef.current = Date.now() + getAccountSyncRetryDelay(error);
       if (!options.automatic) {
-        setBackupStatus(error instanceof Error ? error.message : "Could not sync account backup.");
+        setBackupStatus(error instanceof Error ? error.message : "Could not save account backup.");
       } else {
-        setAccountSyncStatus(error instanceof Error ? error.message : "Account sync paused. Local data is safe.");
-        console.warn(error instanceof Error ? error.message : "Could not sync account backup.");
+        setAccountSyncStatus(error instanceof Error ? error.message : "Account save paused. Local data is safe.");
+        console.warn(error instanceof Error ? error.message : "Could not save account backup.");
       }
       return false;
     } finally {
@@ -1930,7 +1941,7 @@ export default function Dashboard() {
   async function handleCloudPull(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
     setIsSyncing(true);
     if (options.automatic) {
-      setAccountSyncStatus("Checking account data...");
+      setAccountSyncStatus("Loading account data...");
     }
     if (!options.automatic) {
       setBackupStatus("Restoring account backup...");
@@ -1973,14 +1984,14 @@ export default function Dashboard() {
           if (!manifest.dataFingerprint && !manifest.latestDataUpdatedAt) {
             lastAutoPullRemoteSignatureRef.current = remoteSignature;
             shouldPushLocalAfterPull = true;
-            setAccountSyncStatus("Repairing account backup...");
+            setAccountSyncStatus("Saving account data...");
             return true;
           }
           if (
             remoteSignature === lastAutoPullRemoteSignatureRef.current &&
             currentFingerprint === lastAutoPushFingerprintRef.current
           ) {
-            setAccountSyncStatus("Account synced.");
+            setAccountSyncStatus("Account data saved.");
             return true;
           }
           if (manifest.dataFingerprint && manifest.dataFingerprint === currentFingerprint) {
@@ -1989,7 +2000,7 @@ export default function Dashboard() {
             if (auth.userId) {
               localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), currentFingerprint);
             }
-            setAccountSyncStatus("Account synced.");
+            setAccountSyncStatus("Account data saved.");
             return true;
           }
 
@@ -2002,7 +2013,7 @@ export default function Dashboard() {
             currentFingerprint !== manifest.dataFingerprint;
           if (localLooksNewer) {
             shouldPushLocalAfterPull = true;
-            setAccountSyncStatus("Repairing account backup...");
+            setAccountSyncStatus("Saving account data...");
             return true;
           }
         }
@@ -2046,9 +2057,9 @@ export default function Dashboard() {
         if (currentHasBooksBeforePull) {
           shouldPushLocalAfterPull = true;
           accountSyncRetryAfterRef.current = 0;
-          setAccountSyncStatus("Local PDF books kept. Repairing account backup...");
+          setAccountSyncStatus("Local PDF books kept. Saving account data...");
         } else {
-          setAccountSyncStatus("No PDF books in account backup yet.");
+          setAccountSyncStatus("No PDF books in this account yet.");
         }
         return true;
       }
@@ -2082,7 +2093,7 @@ export default function Dashboard() {
       if (!options.automatic) {
         setBackupStatus("Account backup restored.");
       }
-      setAccountSyncStatus("Account synced.");
+      setAccountSyncStatus("Account data loaded.");
       return true;
     } catch (error) {
       const missingAccountBackup = isMissingAccountBackupError(error);
@@ -2100,9 +2111,9 @@ export default function Dashboard() {
         setAccountSyncStatus(
           missingAccountBackup
             ? currentHasDataBeforePull
-              ? "Creating account backup..."
+              ? "Saving account data..."
               : "No account data yet."
-            : "Account sync paused. Local data is safe."
+            : "Account save paused. Local data is safe."
         );
       } else if (options.mode === "account") {
         setBackupStatus(
@@ -2517,7 +2528,11 @@ export default function Dashboard() {
                 {backupStatus}
               </div>
             )}
-            {!backupStatus && accountSyncStatus && auth.isAuthEnabled && auth.isSignedIn && (
+            {!backupStatus &&
+              accountSyncStatus &&
+              auth.isAuthEnabled &&
+              auth.isSignedIn &&
+              isAccountDataAttentionStatus(accountSyncStatus) && (
               <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${accountSyncStatus.toLowerCase().includes("offline") || accountSyncStatus.toLowerCase().includes("paused") ? "text-amber-700 dark:text-amber-300" : "text-sage"}`}>
                 {accountSyncStatus}
               </div>
