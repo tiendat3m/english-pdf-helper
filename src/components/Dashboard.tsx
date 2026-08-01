@@ -590,6 +590,9 @@ function isAccountSyncCoolingDown(retryAfter: number) {
 
 function getAccountSyncRetryDelay(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("no cloud backup") || message.includes("no account backup")) {
+    return 10_000;
+  }
   if (
     message.includes("sign in") ||
     message.includes("supabase") ||
@@ -600,6 +603,16 @@ function getAccountSyncRetryDelay(error: unknown) {
     return 2 * 60_000;
   }
   return 30_000;
+}
+
+function isMissingAccountBackupError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("no cloud backup") ||
+    message.includes("no account backup") ||
+    message.includes("object not found") ||
+    message.includes("not found")
+  );
 }
 
 function readAiCacheEntry(key: string): AiResult | null {
@@ -1834,8 +1847,9 @@ export default function Dashboard() {
       setBackupStatus("Restoring account backup...");
     }
     let shouldPushLocalAfterPull = false;
+    const currentHasDataBeforePull = hasPortableData(data);
     try {
-      const currentHasData = hasPortableData(data);
+      const currentHasData = currentHasDataBeforePull;
       const currentFingerprint = dataSyncFingerprint(data);
       const index = await requestSignedSyncUrl<CloudDownloadIndexResponse>("/api/sync/download-url", {
         mode: options.mode
@@ -1961,13 +1975,21 @@ export default function Dashboard() {
       }
       return true;
     } catch (error) {
-      accountSyncRetryAfterRef.current = Date.now() + getAccountSyncRetryDelay(error);
+      const missingAccountBackup = isMissingAccountBackupError(error);
+      if (missingAccountBackup && currentHasDataBeforePull) {
+        shouldPushLocalAfterPull = true;
+        accountSyncRetryAfterRef.current = 0;
+      } else {
+        accountSyncRetryAfterRef.current = Date.now() + getAccountSyncRetryDelay(error);
+      }
       const message = error instanceof Error ? error.message : "Could not pull cloud backup.";
       if (options.automatic) {
-        console.warn(message);
+        if (!missingAccountBackup || currentHasDataBeforePull) {
+          console.warn(message);
+        }
       } else if (options.mode === "account") {
         setBackupStatus(
-          `${message} Import a PDF to start this account.`
+          missingAccountBackup ? "No account backup yet. Import a PDF to start this account." : `${message} Import a PDF to start this account.`
         );
       } else {
         setBackupStatus(message);
