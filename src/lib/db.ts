@@ -173,6 +173,23 @@ function hasStoredData(data: AppData) {
   );
 }
 
+function hasActiveStoredBooks(data: AppData) {
+  return data.books.some((book) => !book.deletedAt);
+}
+
+async function writeAppDataToDb(db: IDBPDatabase<IeltsPdfNotesDB>, data: AppData) {
+  const tx = db.transaction(BACKUP_STORE_NAMES, "readwrite");
+  await Promise.all([
+    ...data.books.map((book) => tx.objectStore("books").put(book)),
+    ...data.annotations.map((annotation) => tx.objectStore("annotations").put(annotation)),
+    ...data.bookmarks.map((bookmark) => tx.objectStore("bookmarks").put(bookmark)),
+    ...data.pageStatuses.map((status) => tx.objectStore("pageStatuses").put(status)),
+    ...data.vocabulary.map((record) => tx.objectStore("vocabulary").put(record)),
+    ...data.activities.map((activity) => tx.objectStore("activities").put(activity)),
+    tx.done
+  ]);
+}
+
 export async function migrateLegacyDataIntoActiveWorkspace() {
   if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
     return false;
@@ -191,16 +208,7 @@ export async function migrateLegacyDataIntoActiveWorkspace() {
       return false;
     }
 
-    const tx = activeDb.transaction(BACKUP_STORE_NAMES, "readwrite");
-    await Promise.all([
-      ...legacyData.books.map((book) => tx.objectStore("books").put(book)),
-      ...legacyData.annotations.map((annotation) => tx.objectStore("annotations").put(annotation)),
-      ...legacyData.bookmarks.map((bookmark) => tx.objectStore("bookmarks").put(bookmark)),
-      ...legacyData.pageStatuses.map((status) => tx.objectStore("pageStatuses").put(status)),
-      ...legacyData.vocabulary.map((record) => tx.objectStore("vocabulary").put(record)),
-      ...legacyData.activities.map((activity) => tx.objectStore("activities").put(activity)),
-      tx.done
-    ]);
+    await writeAppDataToDb(activeDb, legacyData);
 
     await addActivity({
       type: "book-restored",
@@ -235,16 +243,7 @@ export async function moveWorkspaceDataIntoActiveWorkspace(sourceWorkspaceKey: s
       return false;
     }
 
-    const activeTx = activeDb.transaction(BACKUP_STORE_NAMES, "readwrite");
-    await Promise.all([
-      ...sourceData.books.map((book) => activeTx.objectStore("books").put(book)),
-      ...sourceData.annotations.map((annotation) => activeTx.objectStore("annotations").put(annotation)),
-      ...sourceData.bookmarks.map((bookmark) => activeTx.objectStore("bookmarks").put(bookmark)),
-      ...sourceData.pageStatuses.map((status) => activeTx.objectStore("pageStatuses").put(status)),
-      ...sourceData.vocabulary.map((record) => activeTx.objectStore("vocabulary").put(record)),
-      ...sourceData.activities.map((activity) => activeTx.objectStore("activities").put(activity)),
-      activeTx.done
-    ]);
+    await writeAppDataToDb(activeDb, sourceData);
 
     const sourceTx = sourceDb.transaction(BACKUP_STORE_NAMES, "readwrite");
     await Promise.all([...BACKUP_STORE_NAMES.map((storeName) => sourceTx.objectStore(storeName).clear()), sourceTx.done]);
@@ -257,6 +256,44 @@ export async function moveWorkspaceDataIntoActiveWorkspace(sourceWorkspaceKey: s
   } finally {
     sourceDb.close();
   }
+}
+
+export async function recoverBrowserBookDataIntoActiveWorkspace() {
+  if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
+    return false;
+  }
+
+  const activeDb = await getDb();
+  const activeData = await readAppDataFromDb(activeDb);
+  if (hasActiveStoredBooks(activeData)) {
+    return false;
+  }
+
+  const sources = [
+    { label: "guest workspace", dbName: getWorkspaceDbName("guest") },
+    { label: "legacy workspace", dbName: LEGACY_DB_NAME }
+  ];
+
+  for (const source of sources) {
+    const sourceDb = await openWorkspaceDb(source.dbName);
+    try {
+      const sourceData = await readAppDataFromDb(sourceDb);
+      if (!hasActiveStoredBooks(sourceData)) {
+        continue;
+      }
+
+      await writeAppDataToDb(activeDb, sourceData);
+      await addActivity({
+        type: "book-restored",
+        label: `Recovered browser PDF books from ${source.label}`
+      });
+      return true;
+    } finally {
+      sourceDb.close();
+    }
+  }
+
+  return false;
 }
 
 function blobToDataUrl(blob: Blob) {

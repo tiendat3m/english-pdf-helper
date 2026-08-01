@@ -48,6 +48,7 @@ import {
   migrateLegacyDataIntoActiveWorkspace,
   moveWorkspaceDataIntoActiveWorkspace,
   permanentlyDeleteBooks,
+  recoverBrowserBookDataIntoActiveWorkspace,
   restoreBook,
   setActiveDataWorkspace,
   saveAnnotation,
@@ -523,15 +524,22 @@ function hasPortableData(data: AppData) {
   );
 }
 
+function hasActiveBooks(data: AppData) {
+  return data.books.some((book) => !book.deletedAt);
+}
+
 function backupHasPortableData(backup: AppDataBackup) {
   return Boolean(
     backup.data.books?.length ||
       backup.data.annotations?.length ||
       backup.data.bookmarks?.length ||
       backup.data.pageStatuses?.length ||
-      backup.data.vocabulary?.length ||
-      backup.data.activities?.length
+      backup.data.vocabulary?.length
   );
+}
+
+function backupHasActiveBooks(backup: AppDataBackup) {
+  return backup.data.books?.some((book) => !book.deletedAt) ?? false;
 }
 
 function isIeltsBackup(value: unknown): value is AppDataBackup {
@@ -840,6 +848,8 @@ export default function Dashboard() {
       }
       const movedGuestData =
         auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await moveWorkspaceDataIntoActiveWorkspace("guest") : false;
+      const recoveredBrowserBooks =
+        auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await recoverBrowserBookDataIntoActiveWorkspace() : false;
       const next = await loadAppData();
       if (cancelled) {
         return;
@@ -867,7 +877,7 @@ export default function Dashboard() {
         setIsWorkspaceOpen(false);
       }
 
-      if (migrated || movedGuestData) {
+      if (migrated || movedGuestData || recoveredBrowserBooks) {
         setBackupStatus("Existing browser data moved into this account. Account backup will sync shortly.");
       }
       setIsNavigationReady(true);
@@ -1845,6 +1855,10 @@ export default function Dashboard() {
     }
     try {
       const sourceData = options.sourceData ?? data;
+      if (options.automatic && !hasActiveBooks(sourceData)) {
+        setAccountSyncStatus("Account sync waiting for a PDF book.");
+        return false;
+      }
       if (!hasPortableData(sourceData)) {
         throw new Error("No local data to push. Pull or import a backup first.");
       }
@@ -1923,6 +1937,7 @@ export default function Dashboard() {
     }
     let shouldPushLocalAfterPull = false;
     const currentHasDataBeforePull = hasPortableData(data);
+    const currentHasBooksBeforePull = hasActiveBooks(data);
     try {
       const currentHasData = currentHasDataBeforePull;
       const currentFingerprint = dataSyncFingerprint(data);
@@ -2019,6 +2034,17 @@ export default function Dashboard() {
       if (!incomingHasData) {
         throw new Error(currentHasData ? "Cloud backup is empty. Local data was kept." : "Cloud backup is empty.");
       }
+      const incomingHasBooks = backupHasActiveBooks(backup);
+      if (options.automatic && !incomingHasBooks) {
+        if (currentHasBooksBeforePull) {
+          shouldPushLocalAfterPull = true;
+          accountSyncRetryAfterRef.current = 0;
+          setAccountSyncStatus("Local PDF books kept. Repairing account backup...");
+        } else {
+          setAccountSyncStatus("No PDF books in account backup yet.");
+        }
+        return true;
+      }
 
       if (!options.automatic && currentHasData) {
         const recovery = appDataBackupToBlob(await createAppDataBackup());
@@ -2082,7 +2108,7 @@ export default function Dashboard() {
     } finally {
       isRestoringCloudRef.current = false;
       setIsSyncing(false);
-      if (shouldPushLocalAfterPull && hasPortableData(data)) {
+      if (shouldPushLocalAfterPull && hasActiveBooks(data)) {
         window.setTimeout(() => {
           void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
         }, 300);
