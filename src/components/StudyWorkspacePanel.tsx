@@ -186,7 +186,7 @@ export default function StudyWorkspacePanel({
   }
 
   return (
-    <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-l border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:block">
+    <aside className="max-h-[520px] w-full shrink-0 overflow-y-auto border-t border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:max-h-none xl:w-[22rem] xl:border-l xl:border-t-0">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Study Board</p>

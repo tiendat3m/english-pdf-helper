@@ -153,6 +153,7 @@ const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
 const ACCOUNT_SYNC_FINGERPRINT_STORAGE_KEY = "ielts-pdf-notes-account-sync-fingerprint";
+const DAILY_SESSION_STORAGE_KEY = "ielts-pdf-notes-daily-session";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
@@ -351,6 +352,10 @@ function getAccountSyncFingerprintStorageKey(userId: string) {
   return `${ACCOUNT_SYNC_FINGERPRINT_STORAGE_KEY}:${userId}`;
 }
 
+function getDailySessionStorageKey(workspaceKey: string) {
+  return `${DAILY_SESSION_STORAGE_KEY}:${workspaceKey}:${nowIso().slice(0, 10)}`;
+}
+
 function readStoredWorkspaceSession(workspaceKey: string): WorkspaceSession | null {
   try {
     const raw = localStorage.getItem(getWorkspaceSessionStorageKey(workspaceKey));
@@ -364,6 +369,23 @@ function readStoredWorkspaceSession(workspaceKey: string): WorkspaceSession | nu
     return parsed;
   } catch {
     return null;
+  }
+}
+
+function readDailySessionTasks(workspaceKey: string) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(getDailySessionStorageKey(workspaceKey)) ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDailySessionTasks(workspaceKey: string, taskIds: string[]) {
+  try {
+    localStorage.setItem(getDailySessionStorageKey(workspaceKey), JSON.stringify(taskIds));
+  } catch {
+    // Daily session state is motivational only.
   }
 }
 
@@ -746,6 +768,7 @@ export default function Dashboard() {
   const [isOrganizingVocabulary, setIsOrganizingVocabulary] = useState(false);
   const [organizeVocabularyStatus, setOrganizeVocabularyStatus] = useState<string | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [accountSyncStatus, setAccountSyncStatus] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [openHeaderMenu, setOpenHeaderMenu] = useState<"backup" | null>(null);
   const [globalSearch, setGlobalSearch] = useState("");
@@ -771,6 +794,13 @@ export default function Dashboard() {
   }, [editor]);
 
   useEffect(() => {
+    if (!activeDataWorkspaceKey || !isNavigationReady) {
+      return;
+    }
+    writeDailySessionTasks(activeDataWorkspaceKey, completedSessionTasks);
+  }, [activeDataWorkspaceKey, completedSessionTasks, isNavigationReady]);
+
+  useEffect(() => {
     if (!activeDataWorkspaceKey || activeDataWorkspaceRef.current === activeDataWorkspaceKey) {
       return;
     }
@@ -782,6 +812,7 @@ export default function Dashboard() {
     setIsNavigationReady(false);
     setData(emptyAppData());
     setBackupStatus(null);
+    setAccountSyncStatus(null);
     setOpenHeaderMenu(null);
     lastAutoPushFingerprintRef.current = auth.userId
       ? localStorage.getItem(getAccountSyncFingerprintStorageKey(auth.userId)) ?? ""
@@ -815,6 +846,7 @@ export default function Dashboard() {
       }
 
       setData(next);
+      setCompletedSessionTasks(readDailySessionTasks(workspaceKey));
       const urlSession = readWorkspaceSessionFromUrl();
       const storedSession = urlSession ?? readStoredWorkspaceSession(workspaceKey);
       if (storedSession) {
@@ -1011,6 +1043,38 @@ export default function Dashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, isLoading, isSyncing]);
+
+  useEffect(() => {
+    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
+      return;
+    }
+
+    function handleOnline() {
+      accountSyncRetryAfterRef.current = 0;
+      setAccountSyncStatus("Back online. Syncing account...");
+      void handleCloudPull({ automatic: true, mode: "account" }).then(() => {
+        if (hasPortableData(data)) {
+          void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
+        }
+      });
+    }
+
+    function handleOffline() {
+      setAccountSyncStatus("Offline. Changes stay on this device until reconnect.");
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    if (!navigator.onLine) {
+      handleOffline();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, isLoading, data]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", editor.theme === "dark");
@@ -1728,6 +1792,9 @@ export default function Dashboard() {
     if (!canUseAccountCloud) {
       throw new Error("Sign in from the header before using account cloud.");
     }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("Offline. Changes are saved locally and will sync when online.");
+    }
 
     const token = await auth.getToken().catch(() => null);
 
@@ -1770,6 +1837,9 @@ export default function Dashboard() {
 
   async function handleCloudPush(options: { automatic?: boolean; mode?: CloudSyncMode; sourceData?: AppData } = {}) {
     setIsSyncing(true);
+    if (options.automatic) {
+      setAccountSyncStatus("Syncing account...");
+    }
     if (!options.automatic) {
       setBackupStatus("Syncing account backup...");
     }
@@ -1823,6 +1893,7 @@ export default function Dashboard() {
         localStorage.setItem(getAccountSyncFingerprintStorageKey(auth.userId), sourceFingerprint);
       }
       accountSyncRetryAfterRef.current = 0;
+      setAccountSyncStatus("Account synced.");
 
       if (!options.automatic) {
         setBackupStatus("Account backup synced.");
@@ -1833,6 +1904,7 @@ export default function Dashboard() {
       if (!options.automatic) {
         setBackupStatus(error instanceof Error ? error.message : "Could not sync account backup.");
       } else {
+        setAccountSyncStatus(error instanceof Error ? error.message : "Account sync paused. Local data is safe.");
         console.warn(error instanceof Error ? error.message : "Could not sync account backup.");
       }
       return false;
@@ -1843,6 +1915,9 @@ export default function Dashboard() {
 
   async function handleCloudPull(options: { automatic?: boolean; mode?: CloudSyncMode } = {}) {
     setIsSyncing(true);
+    if (options.automatic) {
+      setAccountSyncStatus("Checking account data...");
+    }
     if (!options.automatic) {
       setBackupStatus("Restoring account backup...");
     }
@@ -1974,6 +2049,7 @@ export default function Dashboard() {
       if (!options.automatic) {
         setBackupStatus("Account backup restored.");
       }
+      setAccountSyncStatus("Account synced.");
       return true;
     } catch (error) {
       const missingAccountBackup = isMissingAccountBackupError(error);
@@ -1988,6 +2064,13 @@ export default function Dashboard() {
         if (!missingAccountBackup || currentHasDataBeforePull) {
           console.warn(message);
         }
+        setAccountSyncStatus(
+          missingAccountBackup
+            ? currentHasDataBeforePull
+              ? "Creating account backup..."
+              : "No account data yet."
+            : "Account sync paused. Local data is safe."
+        );
       } else if (options.mode === "account") {
         setBackupStatus(
           missingAccountBackup ? "No account backup yet. Import a PDF to start this account." : `${message} Import a PDF to start this account.`
@@ -2337,7 +2420,7 @@ export default function Dashboard() {
                 }`}
               >
                 <Download className="h-3.5 w-3.5" />
-                Backup
+                Local backup
                 <ChevronDown className="h-3.5 w-3.5" />
               </button>
               {openHeaderMenu === "backup" && (
@@ -2399,6 +2482,11 @@ export default function Dashboard() {
             {backupStatus && (
               <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${backupStatus.toLowerCase().includes("enter") || backupStatus.toLowerCase().includes("failed") || backupStatus.toLowerCase().includes("could not") || backupStatus.toLowerCase().includes("empty") ? "text-rose-600" : "text-sage"}`}>
                 {backupStatus}
+              </div>
+            )}
+            {!backupStatus && accountSyncStatus && auth.isAuthEnabled && auth.isSignedIn && (
+              <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${accountSyncStatus.toLowerCase().includes("offline") || accountSyncStatus.toLowerCase().includes("paused") ? "text-amber-700 dark:text-amber-300" : "text-sage"}`}>
+                {accountSyncStatus}
               </div>
             )}
             <input
@@ -2856,7 +2944,7 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-            <div className="flex min-h-0 flex-1">
+            <div className={`flex min-h-0 flex-1 ${editor.workspaceMode === "split" ? "flex-col xl:flex-row" : ""}`}>
               <PdfViewer
                 book={activeBook}
                 annotations={data.annotations}
