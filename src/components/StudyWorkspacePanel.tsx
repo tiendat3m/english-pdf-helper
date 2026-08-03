@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, Circle, Download, Layers3, NotebookPen, Search, Star, Target, TriangleAlert } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import { PAGE_STATUS_LABELS, PAGE_STATUS_STYLES } from "@/lib/constants";
 import type { Annotation, BookRecord, HighlightAnnotation, PageStatus, PageStatusRecord, StickyNoteAnnotation, VocabularyRecord } from "@/lib/types";
 
@@ -11,9 +11,9 @@ interface StudyWorkspacePanelProps {
   annotations: Annotation[];
   vocabulary: VocabularyRecord[];
   pageStatuses: PageStatusRecord[];
-  onAddQuickNote: (text: string) => void;
+  onAddQuickNote: (text: string) => void | Promise<void>;
   onJumpToPage: (page: number) => void;
-  onSetPageStatus: (status: PageStatus) => void;
+  onSetPageStatus: (status: PageStatus) => void | Promise<void>;
 }
 
 const statusIcons: Record<PageStatus, ComponentType<{ className?: string }>> = {
@@ -48,6 +48,10 @@ export default function StudyWorkspacePanel({
 }: StudyWorkspacePanelProps) {
   const [pageMapFilter, setPageMapFilter] = useState<PageMapFilter>("nearby");
   const [noteSearch, setNoteSearch] = useState("");
+  const [statusFeedback, setStatusFeedback] = useState<string | null>(null);
+  const [noteFeedback, setNoteFeedback] = useState<string | null>(null);
+  const statusFeedbackTimerRef = useRef<number | null>(null);
+  const noteFeedbackTimerRef = useRef<number | null>(null);
   const pageNotes = annotations.filter(
     (annotation): annotation is StickyNoteAnnotation =>
       annotation.type === "note" && annotation.bookId === book?.id && annotation.pageNumber === currentPage
@@ -147,6 +151,57 @@ export default function StudyWorkspacePanel({
     { value: "all", label: "All" }
   ];
 
+  useEffect(() => {
+    return () => {
+      if (statusFeedbackTimerRef.current !== null) {
+        window.clearTimeout(statusFeedbackTimerRef.current);
+      }
+      if (noteFeedbackTimerRef.current !== null) {
+        window.clearTimeout(noteFeedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  function showStatusFeedback(message: string) {
+    setStatusFeedback(message);
+    if (statusFeedbackTimerRef.current !== null) {
+      window.clearTimeout(statusFeedbackTimerRef.current);
+    }
+    statusFeedbackTimerRef.current = window.setTimeout(() => setStatusFeedback(null), 1800);
+  }
+
+  function showNoteFeedback(message: string) {
+    setNoteFeedback(message);
+    if (noteFeedbackTimerRef.current !== null) {
+      window.clearTimeout(noteFeedbackTimerRef.current);
+    }
+    noteFeedbackTimerRef.current = window.setTimeout(() => setNoteFeedback(null), 1800);
+  }
+
+  async function handleStatusClick(status: PageStatus) {
+    if (!book) {
+      return;
+    }
+    showStatusFeedback("Saving...");
+    await Promise.resolve(onSetPageStatus(status));
+    showStatusFeedback(`Saved as ${PAGE_STATUS_LABELS[status]}`);
+  }
+
+  async function handleQuickNoteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const textarea = form.elements.namedItem("quickNote") as HTMLTextAreaElement;
+    const text = textarea.value.trim();
+    if (!text) {
+      showNoteFeedback("Write something first.");
+      return;
+    }
+
+    await Promise.resolve(onAddQuickNote(text));
+    textarea.value = "";
+    showNoteFeedback(`Saved note on page ${currentPage}`);
+  }
+
   function exportNotebookMarkdown() {
     if (!book) {
       return;
@@ -192,7 +247,10 @@ export default function StudyWorkspacePanel({
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Study Board</p>
           <h2 className="mt-1 text-xl font-black text-stone-950 dark:text-stone-50">Page {currentPage}</h2>
         </div>
-        <div className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black ${PAGE_STATUS_STYLES[currentStatus]}`}>
+        <div
+          title={`Current page status: ${PAGE_STATUS_LABELS[currentStatus]}`}
+          className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black shadow-sm ${PAGE_STATUS_STYLES[currentStatus]}`}
+        >
           <CurrentStatusIcon className="h-3.5 w-3.5" />
           {PAGE_STATUS_LABELS[currentStatus]}
         </div>
@@ -207,15 +265,20 @@ export default function StudyWorkspacePanel({
       <section className="mt-4 rounded-lg border border-stone-200 bg-white/92 p-3 shadow-tool dark:border-stone-800 dark:bg-stone-900/92">
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm font-black text-stone-800 dark:text-stone-100">Page status</div>
-          {nextReviewPage && (
-            <button
-              type="button"
-              onClick={() => onJumpToPage(nextReviewPage.pageNumber)}
-              className="text-[11px] font-black text-sage transition hover:text-ink dark:hover:text-paper"
-            >
-              next review p. {nextReviewPage.pageNumber}
-            </button>
-          )}
+          <div className="min-h-4 text-right text-[11px] font-black text-sage" aria-live="polite">
+            {statusFeedback ??
+              (nextReviewPage ? (
+                <button
+                  type="button"
+                  onClick={() => onJumpToPage(nextReviewPage.pageNumber)}
+                  className="transition hover:text-ink dark:hover:text-paper"
+                >
+                  next review p. {nextReviewPage.pageNumber}
+                </button>
+              ) : (
+                <span>{PAGE_STATUS_LABELS[currentStatus]}</span>
+              ))}
+          </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {statusOrder.map((status) => {
@@ -224,9 +287,11 @@ export default function StudyWorkspacePanel({
               <button
                 key={status}
                 type="button"
-                onClick={() => onSetPageStatus(status)}
+                aria-pressed={currentStatus === status}
+                title={`Mark page ${currentPage} as ${PAGE_STATUS_LABELS[status]}`}
+                onClick={() => void handleStatusClick(status)}
                 className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] font-black transition hover:-translate-y-0.5 ${PAGE_STATUS_STYLES[status]} ${
-                  currentStatus === status ? "ring-2 ring-sage/35" : ""
+                  currentStatus === status ? "scale-[1.02] shadow-md ring-2 ring-sage/55" : ""
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -255,16 +320,7 @@ export default function StudyWorkspacePanel({
         </div>
         <form
           className="mt-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const textarea = form.elements.namedItem("quickNote") as HTMLTextAreaElement;
-            const text = textarea.value.trim();
-            if (text) {
-              onAddQuickNote(text);
-              textarea.value = "";
-            }
-          }}
+          onSubmit={(event) => void handleQuickNoteSubmit(event)}
         >
           <textarea
             name="quickNote"
@@ -274,6 +330,11 @@ export default function StudyWorkspacePanel({
           <button type="submit" className="mt-2 rounded-md bg-ink px-3 py-2 text-xs font-bold text-white dark:bg-paper dark:text-stone-950">
             Save note
           </button>
+          {noteFeedback && (
+            <span className="ml-2 text-xs font-black text-sage" aria-live="polite">
+              {noteFeedback}
+            </span>
+          )}
         </form>
         <div className="mt-3 space-y-2">
           {pageNotes.length ? (
