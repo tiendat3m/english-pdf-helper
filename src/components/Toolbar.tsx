@@ -39,6 +39,7 @@ interface ToolbarProps {
   onRedo: () => void;
   onSave: () => void;
   onClearPage: () => void;
+  clearTitle?: string;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitWidth: () => void;
@@ -111,6 +112,7 @@ export default function Toolbar({
   onRedo,
   onSave,
   onClearPage,
+  clearTitle = "Clear all annotations on this page",
   onZoomIn,
   onZoomOut,
   onFitWidth
@@ -264,7 +266,7 @@ export default function Toolbar({
         <button
           className={`toolbar-icon danger-icon ${confirmingClear ? "confirm-clear" : ""}`}
           type="button"
-          title={confirmingClear ? "Click again to clear this page" : "Clear all annotations on this page"}
+          title={confirmingClear ? "Click again to clear" : clearTitle}
           onClick={() => {
             if (!confirmingClear) {
               setConfirmingClear(true);

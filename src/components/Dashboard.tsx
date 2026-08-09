@@ -31,6 +31,7 @@ import {
 import PdfUploader from "./PdfUploader";
 import PdfSidebar from "./PdfSidebar";
 import ProgressPanel from "./ProgressPanel";
+import ScratchPaper, { SCRATCH_BOOK_ID, SCRATCH_PAGE_NUMBER } from "./ScratchPaper";
 import StudyWorkspacePanel from "./StudyWorkspacePanel";
 import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
@@ -766,6 +767,7 @@ export default function Dashboard() {
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const [isScratchOpen, setIsScratchOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isNavigationReady, setIsNavigationReady] = useState(false);
   const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
@@ -1182,6 +1184,7 @@ export default function Dashboard() {
 
   async function handleImport(file: File) {
     const book = await importBook(file);
+    setIsScratchOpen(false);
     setEditor((current) => ({
       ...current,
       activeTab: "learn",
@@ -1202,6 +1205,7 @@ export default function Dashboard() {
     if (!book) {
       return;
     }
+    setIsScratchOpen(false);
     const nextPage = Math.max(1, Math.min(page ?? book.lastPage ?? 1, book.totalPages || page || book.lastPage || 1));
     await touchBook(book, { lastOpenedAt: nowIso() });
     setEditor((current) => ({
@@ -1288,6 +1292,7 @@ export default function Dashboard() {
     if (!activeBook) {
       return;
     }
+    setIsScratchOpen(false);
     const nextPage = Math.max(1, Math.min(page, activeBook.totalPages || page));
     setEditor((current) => ({ ...current, currentPage: nextPage }));
     void persistActiveBook({ lastPage: nextPage });
@@ -1342,10 +1347,15 @@ export default function Dashboard() {
     removeAnnotations([id]);
   }
 
+  function isCurrentAnnotationSurface(annotation: Annotation) {
+    if (isScratchOpen) {
+      return annotation.bookId === SCRATCH_BOOK_ID && annotation.pageNumber === SCRATCH_PAGE_NUMBER;
+    }
+    return annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage;
+  }
+
   function handleUndo() {
-    const lastIndex = undoStack.findLastIndex((action) =>
-      action.annotations.some((annotation) => annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage)
-    );
+    const lastIndex = undoStack.findLastIndex((action) => action.annotations.some(isCurrentAnnotationSurface));
     if (lastIndex < 0) {
       return;
     }
@@ -1366,9 +1376,7 @@ export default function Dashboard() {
   }
 
   function handleRedo() {
-    const lastIndex = redoStack.findLastIndex((action) =>
-      action.annotations.some((annotation) => annotation.bookId === activeBook?.id && annotation.pageNumber === editor.currentPage)
-    );
+    const lastIndex = redoStack.findLastIndex((action) => action.annotations.some(isCurrentAnnotationSurface));
     if (lastIndex < 0) {
       return;
     }
@@ -1396,6 +1404,20 @@ export default function Dashboard() {
       const samePage = annotation.bookId === activeBook.id && annotation.pageNumber === editor.currentPage;
       return samePage;
     });
+
+    if (!annotationsToDelete.length) {
+      return;
+    }
+
+    setUndoStack((current) => [...current, { type: "delete", annotations: annotationsToDelete }]);
+    setRedoStack([]);
+    const ids = new Set(annotationsToDelete.map((annotation) => annotation.id));
+    setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
+    void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
+  }
+
+  function clearScratchAnnotations() {
+    const annotationsToDelete = data.annotations.filter((annotation) => annotation.bookId === SCRATCH_BOOK_ID);
 
     if (!annotationsToDelete.length) {
       return;
@@ -2240,6 +2262,7 @@ export default function Dashboard() {
 
   function goHome() {
     setEditor((current) => ({ ...current, activeTab: "learn" }));
+    setIsScratchOpen(false);
     setIsWorkspaceOpen(false);
   }
 
@@ -2901,10 +2924,24 @@ export default function Dashboard() {
                     <Home className="h-4 w-4" />
                     Home
                   </button>
+                  <button
+                    type="button"
+                    title="Open listening scratch paper"
+                    onClick={() => setIsScratchOpen((current) => !current)}
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
+                      isScratchOpen
+                        ? "border-sage bg-skysoft text-stone-950 dark:border-sage dark:bg-sage/30 dark:text-stone-50"
+                        : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                    }`}
+                  >
+                    <NotebookPen className="h-4 w-4" />
+                    Giấy nháp
+                  </button>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
                     <div className="text-xs text-stone-500 dark:text-stone-400">
-                      Page {editor.currentPage} - {editor.workspaceMode === "split" ? "Study board open" : "Focus reading"} -{" "}
+                      {isScratchOpen ? "Listening scratch open" : `Page ${editor.currentPage}`} -{" "}
+                      {editor.workspaceMode === "split" ? "Study board open" : "Focus reading"} -{" "}
                       {editor.inputMode === "stylus" ? "stylus locked" : "all input"}
                     </div>
                   </div>
@@ -2975,8 +3012,8 @@ export default function Dashboard() {
                   highlighterColor={editor.highlighterColor}
                   brushStyle={editor.brushStyle}
                   thickness={editor.thickness}
-                  canUndo={undoStack.length > 0}
-                  canRedo={redoStack.length > 0}
+                  canUndo={undoStack.some((action) => action.annotations.some(isCurrentAnnotationSurface))}
+                  canRedo={redoStack.some((action) => action.annotations.some(isCurrentAnnotationSurface))}
                   onToolChange={(tool) => setEditor((current) => ({ ...current, tool }))}
                   onPenColorChange={(penColor) => setEditor((current) => ({ ...current, penColor }))}
                   onHighlighterColorChange={(highlighterColor) => setEditor((current) => ({ ...current, highlighterColor }))}
@@ -2985,7 +3022,8 @@ export default function Dashboard() {
                   onUndo={handleUndo}
                   onRedo={handleRedo}
                   onSave={() => activeBook && void saveBook(activeBook)}
-                  onClearPage={clearCurrentPageAnnotations}
+                  onClearPage={isScratchOpen ? clearScratchAnnotations : clearCurrentPageAnnotations}
+                  clearTitle={isScratchOpen ? "Clear all scratch paper ink" : "Clear all annotations on this page"}
                   onZoomIn={() => changeZoom(editor.zoom + ZOOM_STEP)}
                   onZoomOut={() => changeZoom(editor.zoom - ZOOM_STEP)}
                   onFitWidth={() => changeZoom(DEFAULT_ZOOM)}
@@ -2993,36 +3031,53 @@ export default function Dashboard() {
               </div>
             </div>
             <div className={`flex min-h-0 flex-1 ${editor.workspaceMode === "split" ? "flex-col xl:flex-row" : ""}`}>
-              <PdfViewer
-                book={activeBook}
-                annotations={data.annotations}
-                currentPage={editor.currentPage}
-                zoom={editor.zoom}
-                tool={editor.tool}
-                penColor={editor.penColor}
-                highlighterColor={editor.highlighterColor}
-                brushStyle={editor.brushStyle}
-                thickness={editor.thickness}
-                inputMode={editor.inputMode}
-                aiEnabled={editor.aiEnabled}
-                onPageChange={changePage}
-                onZoomChange={changeZoom}
-                onDocumentLoaded={handleDocumentLoaded}
-                onAddAnnotation={addAnnotation}
-                onUpdateAnnotation={updateAnnotation}
-                onDeleteAnnotation={removeAnnotation}
-                onDeleteAnnotations={removeAnnotations}
-                onVocabularyCandidate={(selection, mode = "vocab") => {
-                  setAiSelection(selection);
-                  setAiMode(mode);
-                  setAiResult(null);
-                  setAiError(null);
-                  setVocabularyMeta(emptyVocabularyMeta());
-                  if (mode === "explain" || mode === "solve") {
-                    void analyzeSelection(selection, mode);
-                  }
-                }}
-              />
+              {isScratchOpen ? (
+                <ScratchPaper
+                  annotations={data.annotations}
+                  tool={editor.tool}
+                  penColor={editor.penColor}
+                  highlighterColor={editor.highlighterColor}
+                  brushStyle={editor.brushStyle}
+                  thickness={editor.thickness}
+                  inputMode={editor.inputMode}
+                  onAddAnnotation={addAnnotation}
+                  onUpdateAnnotation={updateAnnotation}
+                  onDeleteAnnotation={removeAnnotation}
+                  onDeleteAnnotations={removeAnnotations}
+                  onClear={clearScratchAnnotations}
+                />
+              ) : (
+                <PdfViewer
+                  book={activeBook}
+                  annotations={data.annotations}
+                  currentPage={editor.currentPage}
+                  zoom={editor.zoom}
+                  tool={editor.tool}
+                  penColor={editor.penColor}
+                  highlighterColor={editor.highlighterColor}
+                  brushStyle={editor.brushStyle}
+                  thickness={editor.thickness}
+                  inputMode={editor.inputMode}
+                  aiEnabled={editor.aiEnabled}
+                  onPageChange={changePage}
+                  onZoomChange={changeZoom}
+                  onDocumentLoaded={handleDocumentLoaded}
+                  onAddAnnotation={addAnnotation}
+                  onUpdateAnnotation={updateAnnotation}
+                  onDeleteAnnotation={removeAnnotation}
+                  onDeleteAnnotations={removeAnnotations}
+                  onVocabularyCandidate={(selection, mode = "vocab") => {
+                    setAiSelection(selection);
+                    setAiMode(mode);
+                    setAiResult(null);
+                    setAiError(null);
+                    setVocabularyMeta(emptyVocabularyMeta());
+                    if (mode === "explain" || mode === "solve") {
+                      void analyzeSelection(selection, mode);
+                    }
+                  }}
+                />
+              )}
               {editor.workspaceMode === "split" && (
                 <StudyWorkspacePanel
                   book={activeBook}
