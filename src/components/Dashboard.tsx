@@ -159,6 +159,8 @@ const DAILY_SESSION_STORAGE_KEY = "ielts-pdf-notes-daily-session";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
+// ponytail: full-PDF snapshots stall browsers; re-enable after incremental sync exists.
+const ENABLE_BACKGROUND_CLOUD_SYNC = false;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "auto",
@@ -517,11 +519,11 @@ function writeToolSettings(editor: EditorState) {
 function hasPortableData(data: AppData) {
   return Boolean(
     data.books.length ||
-      data.annotations.length ||
-      data.bookmarks.length ||
-      data.pageStatuses.length ||
-      data.vocabulary.length ||
-      data.activities.length
+    data.annotations.length ||
+    data.bookmarks.length ||
+    data.pageStatuses.length ||
+    data.vocabulary.length ||
+    data.activities.length
   );
 }
 
@@ -532,10 +534,10 @@ function hasActiveBooks(data: AppData) {
 function backupHasPortableData(backup: AppDataBackup) {
   return Boolean(
     backup.data.books?.length ||
-      backup.data.annotations?.length ||
-      backup.data.bookmarks?.length ||
-      backup.data.pageStatuses?.length ||
-      backup.data.vocabulary?.length
+    backup.data.annotations?.length ||
+    backup.data.bookmarks?.length ||
+    backup.data.pageStatuses?.length ||
+    backup.data.vocabulary?.length
   );
 }
 
@@ -972,6 +974,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (
+      !ENABLE_BACKGROUND_CLOUD_SYNC ||
       !auth.isAuthEnabled ||
       !auth.isLoaded ||
       !auth.isSignedIn ||
@@ -997,6 +1000,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (
+      !ENABLE_BACKGROUND_CLOUD_SYNC ||
       !auth.isAuthEnabled ||
       !auth.isLoaded ||
       !auth.isSignedIn ||
@@ -1039,7 +1043,7 @@ export default function Dashboard() {
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, data, isLoading, isSyncing]);
 
   useEffect(() => {
-    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
+    if (!ENABLE_BACKGROUND_CLOUD_SYNC || !auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
       return;
     }
 
@@ -1068,7 +1072,7 @@ export default function Dashboard() {
   }, [auth.isAuthEnabled, auth.isLoaded, auth.isSignedIn, auth.userId, isLoading, isSyncing]);
 
   useEffect(() => {
-    if (!auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
+    if (!ENABLE_BACKGROUND_CLOUD_SYNC || !auth.isAuthEnabled || !auth.isLoaded || !auth.isSignedIn || !auth.userId || isLoading) {
       return;
     }
 
@@ -1623,15 +1627,15 @@ export default function Dashboard() {
     const noteBody =
       aiMode === "solve"
         ? [
-            `Question: ${aiSelection.word}`,
-            `Answer: ${aiResult?.title || aiResult?.summary || aiResult?.suggestedNote || "AI solution"}`,
-            aiResult?.grammar ? `Reason: ${aiResult.grammar}` : "",
-            aiResult?.suggestedNote && aiResult.suggestedNote !== aiResult.summary ? aiResult.suggestedNote : ""
-          ]
+          `Question: ${aiSelection.word}`,
+          `Answer: ${aiResult?.title || aiResult?.summary || aiResult?.suggestedNote || "AI solution"}`,
+          aiResult?.grammar ? `Reason: ${aiResult.grammar}` : "",
+          aiResult?.suggestedNote && aiResult.suggestedNote !== aiResult.summary ? aiResult.suggestedNote : ""
+        ]
         : [
-            aiResult?.title || "AI note",
-            aiResult?.suggestedNote || aiResult?.summary || aiSelection.word
-          ];
+          aiResult?.title || "AI note",
+          aiResult?.suggestedNote || aiResult?.summary || aiSelection.word
+        ];
 
     const text = [
       ...noteBody,
@@ -2342,11 +2346,11 @@ export default function Dashboard() {
 
   const recentBooks: Array<{ title: string; lastPage: string; progress: number; id?: string }> = activeBooks.length
     ? sortedBooks.slice(0, 4).map((book) => ({
-        title: book.title,
-        lastPage: book.lastPage.toString(),
-        progress: book.progress,
-        id: book.id
-      }))
+      title: book.title,
+      lastPage: book.lastPage.toString(),
+      progress: book.progress,
+      id: book.id
+    }))
     : [];
   const globalSearchResults = (() => {
     const query = globalSearch.trim().toLowerCase();
@@ -2433,11 +2437,10 @@ export default function Dashboard() {
       key={tab}
       type="button"
       onClick={() => switchTab(tab)}
-      className={`rounded-lg px-4 py-2 text-sm font-bold transition ${
-        editor.activeTab === tab
+      className={`rounded-lg px-4 py-2 text-sm font-bold transition ${editor.activeTab === tab
           ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
           : "text-stone-600 hover:bg-white/80 dark:text-stone-200 dark:hover:bg-stone-800"
-      }`}
+        }`}
     >
       {label}
     </button>
@@ -2449,9 +2452,8 @@ export default function Dashboard() {
 
   return (
     <div
-      className={`min-h-screen ${
-        editor.theme === "warm" ? "bg-[#f9f6ee]" : editor.theme === "dark" ? "bg-stone-950" : "bg-slate-50"
-      }`}
+      className={`min-h-screen ${editor.theme === "warm" ? "bg-[#f9f6ee]" : editor.theme === "dark" ? "bg-stone-950" : "bg-slate-50"
+        }`}
     >
       <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/86 px-3 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86 md:px-4">
         <div className="mx-auto flex w-full max-w-[1580px] flex-col gap-3">
@@ -2480,11 +2482,10 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => setOpenHeaderMenu((current) => (current === "backup" ? null : "backup"))}
-                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
-                  openHeaderMenu === "backup"
+                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${openHeaderMenu === "backup"
                     ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-100"
                     : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-                }`}
+                  }`}
               >
                 <Download className="h-3.5 w-3.5" />
                 Local backup
@@ -2536,11 +2537,10 @@ export default function Dashboard() {
                   type="button"
                   title={`Use ${theme} theme`}
                   onClick={() => setEditor((current) => ({ ...current, theme }))}
-                  className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${
-                    editor.theme === theme
+                  className={`rounded-md px-3 py-2 text-xs font-black capitalize transition ${editor.theme === theme
                       ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
                       : "text-stone-500 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
-                  }`}
+                    }`}
                 >
                   {theme}
                 </button>
@@ -2556,10 +2556,10 @@ export default function Dashboard() {
               auth.isAuthEnabled &&
               auth.isSignedIn &&
               isAccountDataAttentionStatus(accountSyncStatus) && (
-              <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${accountSyncStatus.toLowerCase().includes("offline") || accountSyncStatus.toLowerCase().includes("paused") ? "text-amber-700 dark:text-amber-300" : "text-sage"}`}>
-                {accountSyncStatus}
-              </div>
-            )}
+                <div className={`min-w-0 flex-1 truncate text-xs font-semibold sm:text-right ${accountSyncStatus.toLowerCase().includes("offline") || accountSyncStatus.toLowerCase().includes("paused") ? "text-amber-700 dark:text-amber-300" : "text-sage"}`}>
+                  {accountSyncStatus}
+                </div>
+              )}
             <input
               ref={backupInputRef}
               type="file"
@@ -2928,11 +2928,10 @@ export default function Dashboard() {
                     type="button"
                     title="Open listening scratch paper"
                     onClick={() => setIsScratchOpen((current) => !current)}
-                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${
-                      isScratchOpen
+                    className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-black shadow-sm transition ${isScratchOpen
                         ? "border-sage bg-skysoft text-stone-950 dark:border-sage dark:bg-sage/30 dark:text-stone-50"
                         : "border-stone-200 bg-white text-stone-600 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-                    }`}
+                      }`}
                   >
                     <NotebookPen className="h-4 w-4" />
                     Giấy nháp
@@ -2952,11 +2951,10 @@ export default function Dashboard() {
                     onClick={() =>
                       setEditor((current) => ({ ...current, workspaceMode: current.workspaceMode === "split" ? "focus" : "split" }))
                     }
-                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
-                      editor.workspaceMode === "split"
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${editor.workspaceMode === "split"
                         ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
                         : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
-                    }`}
+                      }`}
                   >
                     <NotebookPen className="h-4 w-4" />
                     {editor.workspaceMode === "split" ? "Study board" : "Focus"}
@@ -2964,11 +2962,10 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => setEditor((current) => ({ ...current, inputMode: current.inputMode === "stylus" ? "all" : "stylus" }))}
-                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
-                      editor.inputMode === "stylus"
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${editor.inputMode === "stylus"
                         ? "bg-sage text-white"
                         : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
-                    }`}
+                      }`}
                   >
                     <PenLine className="h-4 w-4" />
                     {editor.inputMode === "stylus" ? "Stylus" : "All input"}
@@ -2994,11 +2991,10 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => setEditor((current) => ({ ...current, aiEnabled: !current.aiEnabled }))}
-                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${
-                      editor.aiEnabled
+                    className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${editor.aiEnabled
                         ? "bg-skysoft text-stone-900 dark:bg-sage/30 dark:text-stone-100"
                         : "text-stone-500 hover:bg-white dark:text-stone-300 dark:hover:bg-stone-800"
-                    }`}
+                      }`}
                   >
                     <Brain className="h-4 w-4" />
                     {editor.aiEnabled ? "AI on" : "AI off"}
@@ -3163,11 +3159,10 @@ export default function Dashboard() {
                 return (
                   <div
                     key={task.id}
-                    className={`rounded-lg border p-4 transition ${
-                      isDone
+                    className={`rounded-lg border p-4 transition ${isDone
                         ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40"
                         : "border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-stone-900"
-                    }`}
+                      }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
@@ -3190,9 +3185,8 @@ export default function Dashboard() {
                               current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id]
                             )
                           }
-                          className={`rounded-md px-3 py-2 text-xs font-black transition ${
-                            isDone ? "bg-emerald-600 text-white" : "bg-ink text-white dark:bg-paper dark:text-stone-950"
-                          }`}
+                          className={`rounded-md px-3 py-2 text-xs font-black transition ${isDone ? "bg-emerald-600 text-white" : "bg-ink text-white dark:bg-paper dark:text-stone-950"
+                            }`}
                         >
                           {isDone ? "Done" : "Mark done"}
                         </button>
@@ -3243,11 +3237,10 @@ export default function Dashboard() {
                     key={provider}
                     type="button"
                     onClick={() => setAiSettings((current) => ({ ...current, provider }))}
-                    className={`rounded-md border px-2 py-2 text-xs font-black transition ${
-                      aiSettings.provider === provider
+                    className={`rounded-md border px-2 py-2 text-xs font-black transition ${aiSettings.provider === provider
                         ? "border-sage bg-skysoft text-stone-900 dark:bg-sage/20 dark:text-stone-50"
                         : "border-stone-200 bg-white text-stone-500 hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900"
-                    }`}
+                      }`}
                   >
                     {AI_PROVIDER_LABELS[provider]}
                   </button>
@@ -3382,11 +3375,10 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => void handleAiAnalyze(mode)}
                   disabled={isAiLoading}
-                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition disabled:cursor-wait disabled:opacity-60 ${
-                    aiMode === mode
+                  className={`inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition disabled:cursor-wait disabled:opacity-60 ${aiMode === mode
                       ? "border-sage bg-skysoft/60 text-stone-900 dark:bg-sage/20 dark:text-stone-50"
                       : "border-stone-200 bg-white text-stone-600 hover:border-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
-                  }`}
+                    }`}
                 >
                   <Brain className="h-4 w-4" />
                   {label}
