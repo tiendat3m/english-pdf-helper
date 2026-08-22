@@ -96,7 +96,7 @@ type VocabularyDraft = Omit<
 };
 
 type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
-type AiProvider = "auto" | "groq" | "gemini" | "ollama" | "openai";
+type AiProvider = "auto" | "groq" | "gemini" | "openrouter" | "ollama" | "openai";
 
 interface AiSettings {
   provider: AiProvider;
@@ -164,12 +164,13 @@ const ENABLE_BACKGROUND_CLOUD_SYNC = false;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "auto",
-  providerOrder: ["groq", "gemini", "ollama", "openai"]
+  providerOrder: ["gemini", "groq", "openrouter", "ollama"]
 };
 const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   auto: "Auto",
   groq: "Groq",
   gemini: "Gemini",
+  openrouter: "OpenRouter",
   ollama: "Ollama",
   openai: "OpenAI"
 };
@@ -3231,7 +3232,7 @@ export default function Dashboard() {
 
             <div className="mt-5">
               <div className="text-sm font-black text-stone-800 dark:text-stone-100">Mode</div>
-              <div className="mt-2 grid grid-cols-5 gap-2">
+              <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6">
                 {(Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((provider) => (
                   <button
                     key={provider}
@@ -3346,7 +3347,9 @@ export default function Dashboard() {
                   {aiSelection.sourceBookTitle} - page {aiSelection.sourcePage}
                 </p>
                 <p className="mt-1 text-xs font-black text-sage">
-                  Provider: {AI_PROVIDER_LABELS[aiSettings.provider]} - order {aiSettings.providerOrder.map((provider) => AI_PROVIDER_LABELS[provider]).join(" > ")}
+                  {aiSettings.provider === "auto"
+                    ? `Provider: Auto - fallback ${aiSettings.providerOrder.map((provider) => AI_PROVIDER_LABELS[provider]).join(" > ")}`
+                    : `Provider: ${AI_PROVIDER_LABELS[aiSettings.provider]} - fallback off`}
                 </p>
               </div>
               <button
