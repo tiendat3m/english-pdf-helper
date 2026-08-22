@@ -20,6 +20,9 @@ const modeLabels: Record<AiMode, string> = {
   note: "study note",
   solve: "exercise solver"
 };
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_OLLAMA_LOCAL_MODEL = "llama3.2";
+const DEFAULT_OLLAMA_CLOUD_MODEL = "glm-5.2";
 
 function isAiMode(value: unknown): value is AiMode {
   return value === "vocab" || value === "explain" || value === "grammar" || value === "note" || value === "solve";
@@ -163,41 +166,21 @@ function buildPrompt(body: AiRequestBody, text: string, hasImage: boolean) {
   const source = [body.sourceBookTitle, body.sourcePage ? `page ${body.sourcePage}` : ""]
     .filter(Boolean)
     .join(", ");
+  const modeRule: Record<AiMode, string> = {
+    vocab: "Make a compact vocab card: IPA, part of speech, IELTS meaning, Vietnamese, synonyms/antonyms, collocations, one example.",
+    explain: "Explain the selected phrase in context for IELTS: plain meaning, Vietnamese, usage, collocations, common mistake, one example.",
+    grammar: "Identify the grammar pattern, why it works here, common learner mistake, one example.",
+    note: "Write a concise study note ready for a PDF margin sticky note.",
+    solve: "Solve the exercise. Put the answer first. For verb blanks, explain the tense/form briefly."
+  };
 
-  return `You are an IELTS Band 8 study coach.
-Return only valid compact JSON with these keys:
-title, summary, ipa, partOfSpeech, meaning, synonyms, antonyms, topic, subtopic, tags, difficulty, usage, collocations, commonMistake, example, grammar, vietnamese, suggestedNote.
-
-Mode: ${body.mode} (${modeLabels[body.mode]})
-Source: ${source || "unknown"}
-Image selection attached: ${hasImage ? "yes" : "no"}
-Selected text:
-${text || "[No selectable PDF text. Read the attached image selection first.]"}
-
-Rules:
-- Explain for IELTS learners, not generic English learners.
-- Keep output concise and useful for a PDF margin note.
-- If an image selection is attached, OCR/read only the highlighted crop first, then answer from that crop.
-- If mode is vocab, focus on IPA pronunciation, part of speech, word/phrase meaning, Vietnamese meaning, synonyms, antonyms, collocation, IELTS usage, and one natural example.
-- If mode is explain, make it a mini lesson: plain meaning, why it is used in this context, Vietnamese explanation, IELTS usage, collocations, common mistake or contrast, and one natural example.
-- If mode is grammar, identify the grammar pattern and why it matters.
-- If mode is solve, solve the selected exercise text. Put the answer first.
-- For mode solve, title should be "Answer: ..." and summary should include the completed sentence or answer list.
-- For fill-in-the-blank verb exercises, choose the correct verb form and put the short grammar reason in grammar.
-- For present simple vs present continuous exercises, use present continuous for changes happening around now, current temporary situations, and trends; use present simple for habits, facts, routines, and stative verbs.
-- ipa should be a standard IPA transcription when the selected text is a word or short phrase; otherwise use an empty string.
-- partOfSpeech should be short, e.g. noun, verb, adjective, adverb, phrase, phrasal verb, collocation.
-- synonyms should be 2-4 close IELTS-useful alternatives separated by commas; use an empty string if none fit.
-- antonyms should be 1-3 useful opposites separated by commas; use an empty string if none fit.
-- topic should be one broad IELTS theme, e.g. Education, Work, Technology, Environment, Health, Media, Society, Travel, Culture, People, Grammar, or General.
-- subtopic should be a narrower learning bucket, e.g. University, Work routines, Stative verbs, News media, Climate change.
-- tags should be an array of 2-5 concise lowercase strings for filtering and review.
-- difficulty should be one of "band-5", "band-6", "band-7", "band-8"; use an empty string if unsure.
-- usage should explain how to use the word, phrase, or grammar point in IELTS writing/speaking.
-- collocations should be 2-5 natural collocations or fixed phrases separated by commas.
-- commonMistake should warn about a likely learner mistake, false friend, register problem, or wrong collocation.
-- vietnamese should briefly explain in Vietnamese.
-- suggestedNote should be ready to save as a sticky note.`;
+  return `IELTS Band 8 coach. Return only compact JSON:
+{"title":"","summary":"","ipa":"","partOfSpeech":"","meaning":"","synonyms":"","antonyms":"","topic":"","subtopic":"","tags":[],"difficulty":"","usage":"","collocations":"","commonMistake":"","example":"","grammar":"","vietnamese":"","suggestedNote":""}
+Mode: ${body.mode} (${modeLabels[body.mode]}). Source: ${source || "unknown"}.
+${hasImage ? "Image crop attached: read only the highlighted crop first." : ""}
+Task: ${modeRule[body.mode]}
+Rules: concise; IELTS-focused; topic/subtopic for filtering; tags 2-5 lowercase; difficulty band-5/band-6/band-7/band-8 or empty; IPA only for word/short phrase; Vietnamese brief.
+Selected text: ${text || "[No selectable PDF text; use attached image crop.]"}`;
 }
 
 function parseJsonOrFallback(outputText: string, text: string, mode: AiMode) {
@@ -265,6 +248,15 @@ function ollamaEndpoint(path: string) {
   return `${apiBaseUrl}${path}`;
 }
 
+function isOllamaCloudHost() {
+  const baseUrl = process.env.OLLAMA_BASE_URL ?? "";
+  return Boolean(process.env.OLLAMA_API_KEY) || /(?:^https?:\/\/)?(?:www\.)?ollama\.com(?:\/|$)/i.test(baseUrl);
+}
+
+function ollamaTextModel() {
+  return process.env.OLLAMA_MODEL?.trim() || (isOllamaCloudHost() ? DEFAULT_OLLAMA_CLOUD_MODEL : DEFAULT_OLLAMA_LOCAL_MODEL);
+}
+
 function isLikelyVisionModel(model: string) {
   return /\b(?:gemma4|llava|bakllava|moondream|minicpm-v|vision|vl|pixtral)\b/i.test(model);
 }
@@ -310,7 +302,7 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
     return null;
   }
 
-  const model = image ? ollamaImageModel() : process.env.OLLAMA_MODEL ?? "llama3.2";
+  const model = image ? ollamaImageModel() : ollamaTextModel();
   if (image && !model) {
     return NextResponse.json(
       {
@@ -369,6 +361,8 @@ async function callOllama(prompt: string, image?: { mimeType: string; data: stri
     const quotaHint =
       response.status === 429
         ? `Ollama quota/rate limit hit for ${model}. Try again later, add usage in Ollama, or switch to another model/provider.`
+        : /retired|deprecated|unavailable/i.test(message)
+          ? `Ollama model ${model} is unavailable: ${message}. Set OLLAMA_MODEL=${DEFAULT_OLLAMA_CLOUD_MODEL} for ollama.com API access, or switch the AI provider mode to Auto.`
         : message;
     const imageHint =
       image && !process.env.OLLAMA_VISION_MODEL
@@ -390,7 +384,7 @@ async function callGemini(prompt: string, image?: { mimeType: string; data: stri
     return null;
   }
 
-  const model = process.env.GEMINI_MODEL ?? "gemini-3-flash-preview";
+  const model = process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
   const parts: unknown[] = [{ text: prompt }];
   if (image) {
     parts.push({
@@ -563,7 +557,7 @@ export async function POST(request: Request) {
   const fallbackText = text || "Selected image";
   const prompt = buildPrompt(body, text, Boolean(image));
   const providerErrors: string[] = [];
-  const defaultTextProviderOrder: AiProvider[] = ["groq", "gemini", "ollama", "openai"];
+  const defaultTextProviderOrder: AiProvider[] = ["gemini", "ollama", "openai", "groq"];
   const defaultImageProviderOrder: AiProvider[] = ["gemini", "ollama", "groq", "openai"];
   const requestedOrder = (body.providerOrder ?? []).filter((provider): provider is AiProvider => isAiProvider(provider) && provider !== "auto");
   const providerOrder = [
