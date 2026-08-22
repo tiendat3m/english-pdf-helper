@@ -36,12 +36,16 @@ Open `http://localhost:3000`.
 
 ## AI Study Coach
 
-Create `.env` before using AI actions. Use Auto mode when you have more than one provider; it falls back when one quota is tired.
+Create `.env` before using AI actions. Use Auto mode when you have more than one provider; it falls back when one quota is tired. For Vercel, add these in Project Settings -> Environment Variables.
 
 ```bash
 AI_PROVIDER=auto
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-2.5-flash-lite
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.1-8b-instant
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=openrouter/free
 ```
 
 For no cloud quota, run a local Ollama model:

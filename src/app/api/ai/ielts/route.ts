@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 type AiMode = "vocab" | "explain" | "grammar" | "note" | "solve";
-type AiProvider = "auto" | "groq" | "gemini" | "ollama" | "openai";
+type AiProvider = "auto" | "groq" | "gemini" | "openrouter" | "ollama" | "openai";
 
 interface AiRequestBody {
   mode: AiMode;
@@ -20,7 +20,8 @@ const modeLabels: Record<AiMode, string> = {
   note: "study note",
   solve: "exercise solver"
 };
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_OPENROUTER_MODEL = "openrouter/free";
 const DEFAULT_OLLAMA_LOCAL_MODEL = "llama3.2";
 const DEFAULT_OLLAMA_CLOUD_MODEL = "glm-5.2";
 
@@ -29,7 +30,7 @@ function isAiMode(value: unknown): value is AiMode {
 }
 
 function isAiProvider(value: unknown): value is AiProvider {
-  return value === "auto" || value === "groq" || value === "gemini" || value === "ollama" || value === "openai";
+  return value === "auto" || value === "groq" || value === "gemini" || value === "openrouter" || value === "ollama" || value === "openai";
 }
 
 function extractOpenAiOutputText(response: unknown) {
@@ -433,6 +434,11 @@ function groqEndpoint(path: string) {
   return `${baseUrl}${path}`;
 }
 
+function openRouterEndpoint(path: string) {
+  const baseUrl = stripTrailingSlash(process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1");
+  return `${baseUrl}${path}`;
+}
+
 async function callGroq(prompt: string, image?: { mimeType: string; data: string } | null, providerOverride?: AiProvider) {
   if (!shouldTryProvider("groq", providerOverride)) {
     return null;
@@ -498,6 +504,70 @@ async function callGroq(prompt: string, image?: { mimeType: string; data: string
   return extractOpenAiCompatibleChatText(payload);
 }
 
+async function callOpenRouter(prompt: string, image?: { mimeType: string; data: string } | null, providerOverride?: AiProvider) {
+  if (!shouldTryProvider("openrouter", providerOverride)) {
+    return null;
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const model = process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_MODEL;
+  const content: unknown = image
+    ? [
+      { type: "text", text: prompt },
+      { type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } }
+    ]
+    : prompt;
+
+  let response: Response;
+  try {
+    response = await fetch(openRouterEndpoint("/chat/completions"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://ielts-pdf-helper.vercel.app",
+        "X-Title": process.env.OPENROUTER_APP_NAME ?? "IELTS PDF Helper"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content }],
+        response_format: { type: "json_object" },
+        temperature: 0.2
+      })
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? `OpenRouter request failed: ${error.message}. Check OPENROUTER_API_KEY and OPENROUTER_BASE_URL.`
+            : "OpenRouter request failed. Check OPENROUTER_API_KEY and OPENROUTER_BASE_URL.",
+        provider: "openrouter"
+      },
+      { status: 502 }
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload
+        ? JSON.stringify(payload.error)
+        : "OpenRouter request failed.";
+    const quotaHint =
+      response.status === 429
+        ? `OpenRouter quota/rate limit hit for ${model}. Trying another provider works when AI_PROVIDER=auto.`
+        : message;
+    return NextResponse.json({ error: quotaHint, provider: "openrouter" }, { status: response.status });
+  }
+
+  return extractOpenAiCompatibleChatText(payload);
+}
+
 async function callOpenAi(prompt: string, providerOverride?: AiProvider) {
   if (!shouldTryProvider("openai", providerOverride)) {
     return null;
@@ -557,8 +627,8 @@ export async function POST(request: Request) {
   const fallbackText = text || "Selected image";
   const prompt = buildPrompt(body, text, Boolean(image));
   const providerErrors: string[] = [];
-  const defaultTextProviderOrder: AiProvider[] = ["gemini", "ollama", "openai", "groq"];
-  const defaultImageProviderOrder: AiProvider[] = ["gemini", "ollama", "groq", "openai"];
+  const defaultTextProviderOrder: AiProvider[] = ["gemini", "groq", "openrouter", "ollama"];
+  const defaultImageProviderOrder: AiProvider[] = ["gemini", "openrouter", "ollama"];
   const requestedOrder = (body.providerOrder ?? []).filter((provider): provider is AiProvider => isAiProvider(provider) && provider !== "auto");
   const providerOrder = [
     ...requestedOrder,
@@ -574,6 +644,9 @@ export async function POST(request: Request) {
     }
     if (provider === "ollama") {
       return image ? callOllama(prompt, image, providerOverride) : callOllama(prompt, undefined, providerOverride);
+    }
+    if (provider === "openrouter") {
+      return image ? callOpenRouter(prompt, image, providerOverride) : callOpenRouter(prompt, undefined, providerOverride);
     }
     return image ? Promise.resolve(null) : callOpenAi(prompt, providerOverride);
   };
@@ -600,7 +673,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    { error: "No AI provider configured. Set AI_PROVIDER=auto and configure OLLAMA, GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY." },
+    { error: "No AI provider configured. Set AI_PROVIDER=auto and configure GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, OLLAMA, or OPENAI_API_KEY." },
     { status: 500 }
   );
 }
