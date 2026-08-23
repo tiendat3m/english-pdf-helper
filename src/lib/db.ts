@@ -75,6 +75,7 @@ interface RestoreBackupOptions {
 }
 
 const BACKUP_STORE_NAMES = ["books", "annotations", "bookmarks", "pageStatuses", "vocabulary", "activities"] as const;
+const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 
 function sanitizeWorkspaceKey(workspaceKey: string) {
   return workspaceKey.trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "guest";
@@ -118,6 +119,80 @@ function getDb() {
   return dbPromise;
 }
 
+function toStringField(value: unknown, fallback = "") {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || typeof value === "undefined") {
+    return fallback;
+  }
+  return String(value);
+}
+
+function toIsoField(value: unknown, fallback = nowIso()) {
+  const text = toStringField(value);
+  return Number.isFinite(Date.parse(text)) ? text : fallback;
+}
+
+function toNumberField(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toTagsField(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => toStringField(item).trim()).filter(Boolean);
+  }
+  return toStringField(value)
+    .split(/[,\n;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toVocabStatus(value: unknown): VocabularyRecord["status"] {
+  return value === "learning" || value === "mastered" || value === "new" ? value : "new";
+}
+
+function toVocabDifficulty(value: unknown): VocabularyRecord["difficulty"] {
+  return value === "band-5" || value === "band-6" || value === "band-7" || value === "band-8" ? value : undefined;
+}
+
+function normalizeVocabularyRecord(record: VocabularyRecord): VocabularyRecord {
+  const raw = record as Partial<Record<keyof VocabularyRecord, unknown>>;
+  const createdAt = toIsoField(raw.createdAt);
+  const dueAt = toStringField(raw.dueAt);
+  const lastReviewedAt = toStringField(raw.lastReviewedAt);
+  const reviewCount = toNumberField(raw.reviewCount, 0);
+  const ease = toNumberField(raw.ease, 2.1);
+
+  return {
+    ...record,
+    id: toStringField(raw.id, uuid()),
+    word: toStringField(raw.word, "Untitled vocabulary"),
+    ipa: toStringField(raw.ipa),
+    partOfSpeech: toStringField(raw.partOfSpeech),
+    meaning: toStringField(raw.meaning),
+    vietnameseMeaning: toStringField(raw.vietnameseMeaning),
+    synonyms: toStringField(raw.synonyms),
+    antonyms: toStringField(raw.antonyms),
+    topic: toStringField(raw.topic),
+    subtopic: toStringField(raw.subtopic),
+    tags: toTagsField(raw.tags),
+    difficulty: toVocabDifficulty(raw.difficulty),
+    example: toStringField(raw.example),
+    sourceBookId: toStringField(raw.sourceBookId, MANUAL_VOCABULARY_SOURCE_ID),
+    sourceBookTitle: toStringField(raw.sourceBookTitle, "Vocabulary"),
+    sourcePage: Math.max(0, Math.floor(toNumberField(raw.sourcePage, 0))),
+    status: toVocabStatus(raw.status),
+    dueAt: dueAt && Number.isFinite(Date.parse(dueAt)) ? dueAt : createdAt,
+    lastReviewedAt: lastReviewedAt && Number.isFinite(Date.parse(lastReviewedAt)) ? lastReviewedAt : undefined,
+    reviewCount: Math.max(0, Math.floor(reviewCount)),
+    ease: ease > 0 ? ease : 2.1,
+    createdAt,
+    updatedAt: toIsoField(raw.updatedAt, createdAt)
+  };
+}
+
 export function setActiveDataWorkspace(workspaceKey: string) {
   const nextWorkspaceKey = sanitizeWorkspaceKey(workspaceKey);
   if (nextWorkspaceKey === activeWorkspaceKey) {
@@ -149,7 +224,7 @@ async function readAppDataFromDb(db: IDBPDatabase<IeltsPdfNotesDB>): Promise<App
     annotations,
     bookmarks,
     pageStatuses,
-    vocabulary: vocabulary.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    vocabulary: vocabulary.map(normalizeVocabularyRecord).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     activities: activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 80)
   };
 }
