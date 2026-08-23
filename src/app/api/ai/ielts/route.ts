@@ -210,6 +210,36 @@ function parseJsonOrFallback(outputText: string, text: string, mode: AiMode) {
   }
 }
 
+function aiTextField(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => aiTextField(item)).filter(Boolean).join(", ");
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (value === null || typeof value === "undefined") {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function hasAiPayloadContent(payload: unknown) {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  return [
+    record.title,
+    record.summary,
+    record.meaning,
+    record.vietnamese,
+    record.usage,
+    record.grammar,
+    record.suggestedNote,
+    record.example
+  ].some((value) => aiTextField(value));
+}
+
 function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -661,7 +691,11 @@ export async function POST(request: Request) {
       continue;
     }
     if (typeof result === "string") {
-      return NextResponse.json(parseJsonOrFallback(result, fallbackText, body.mode));
+      const parsed = parseJsonOrFallback(result, fallbackText, body.mode);
+      if (hasAiPayloadContent(parsed)) {
+        return NextResponse.json(parsed);
+      }
+      providerErrors.push(`${provider}: empty AI response`);
     }
   }
 

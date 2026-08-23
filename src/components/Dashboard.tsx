@@ -151,7 +151,7 @@ interface VocabularyMeta {
 const MANUAL_VOCABULARY_SOURCE_ID = "manual-vocabulary";
 const WORKSPACE_SESSION_STORAGE_KEY = "ielts-pdf-notes-workspace-session";
 const LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY = "ielts-pdf-notes-legacy-workspace-migrated-to";
-const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache";
+const AI_CACHE_STORAGE_KEY = "ielts-pdf-notes-ai-cache-v2";
 const AI_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-ai-settings";
 const TOOL_SETTINGS_STORAGE_KEY = "ielts-pdf-notes-tool-settings";
 const ACCOUNT_SYNC_FINGERPRINT_STORAGE_KEY = "ielts-pdf-notes-account-sync-fingerprint";
@@ -664,13 +664,16 @@ function readAiCacheEntry(key: string): AiResult | null {
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
     const match = entries.find((entry) => entry.key === key);
-    return match?.result ?? null;
+    return match?.result && hasAiResultContent(match.result) ? match.result : null;
   } catch {
     return null;
   }
 }
 
 function writeAiCacheEntry(key: string, result: AiResult) {
+  if (!hasAiResultContent(result)) {
+    return;
+  }
   try {
     const entries = JSON.parse(localStorage.getItem(AI_CACHE_STORAGE_KEY) ?? "[]") as AiCacheEntry[];
     const nextEntries = [
@@ -681,6 +684,32 @@ function writeAiCacheEntry(key: string, result: AiResult) {
   } catch {
     // AI cache is a quota saver only; ignore storage pressure or private-mode failures.
   }
+}
+
+function aiTextField(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => aiTextField(item)).filter(Boolean).join(", ");
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (value === null || typeof value === "undefined") {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function hasAiResultContent(result: Partial<AiResult>) {
+  return [
+    result.title && result.title !== "AI study note" ? result.title : "",
+    result.summary,
+    result.meaning,
+    result.vietnamese,
+    result.usage,
+    result.grammar,
+    result.suggestedNote,
+    result.example
+  ].some((value) => aiTextField(value));
 }
 
 function readAiSettings(): AiSettings {
@@ -1481,24 +1510,24 @@ export default function Dashboard() {
 
   function toAiResult(payload: Partial<AiResult>) {
     return {
-      title: payload.title || "AI study note",
-      summary: payload.summary || "",
-      ipa: payload.ipa || "",
-      partOfSpeech: payload.partOfSpeech || "",
-      meaning: payload.meaning || "",
-      synonyms: payload.synonyms || "",
-      antonyms: payload.antonyms || "",
-      topic: payload.topic || "",
-      subtopic: payload.subtopic || "",
+      title: aiTextField(payload.title) || "AI study note",
+      summary: aiTextField(payload.summary),
+      ipa: aiTextField(payload.ipa),
+      partOfSpeech: aiTextField(payload.partOfSpeech),
+      meaning: aiTextField(payload.meaning),
+      synonyms: aiTextField(payload.synonyms),
+      antonyms: aiTextField(payload.antonyms),
+      topic: aiTextField(payload.topic),
+      subtopic: aiTextField(payload.subtopic),
       tags: normalizeTags(payload.tags),
       difficulty: normalizeDifficulty(payload.difficulty),
-      usage: payload.usage || "",
-      collocations: payload.collocations || "",
-      commonMistake: payload.commonMistake || "",
-      example: payload.example || "",
-      grammar: payload.grammar || "",
-      vietnamese: payload.vietnamese || "",
-      suggestedNote: payload.suggestedNote || payload.summary || ""
+      usage: aiTextField(payload.usage),
+      collocations: aiTextField(payload.collocations),
+      commonMistake: aiTextField(payload.commonMistake),
+      example: aiTextField(payload.example),
+      grammar: aiTextField(payload.grammar),
+      vietnamese: aiTextField(payload.vietnamese),
+      suggestedNote: aiTextField(payload.suggestedNote) || aiTextField(payload.summary)
     };
   }
 
@@ -1533,6 +1562,9 @@ export default function Dashboard() {
     }
 
     const nextResult = toAiResult(payload);
+    if (!hasAiResultContent(nextResult)) {
+      throw new Error("AI returned an empty note. Try again or move another provider earlier in Auto fallback.");
+    }
     if (cacheKey) {
       writeAiCacheEntry(cacheKey, nextResult);
     }
