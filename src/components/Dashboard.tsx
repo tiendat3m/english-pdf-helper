@@ -161,8 +161,7 @@ const DAILY_SESSION_STORAGE_KEY = "ielts-pdf-notes-daily-session";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
-// ponytail: full-PDF snapshots stall browsers; re-enable after incremental sync exists.
-const ENABLE_BACKGROUND_CLOUD_SYNC = false;
+const ENABLE_BACKGROUND_CLOUD_SYNC = true;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "auto",
@@ -1044,6 +1043,9 @@ export default function Dashboard() {
     ) {
       return;
     }
+    if (lastAutoPullAttemptAccountRef.current !== auth.userId) {
+      return;
+    }
     if (!hasActiveBooks(data)) {
       return;
     }
@@ -1059,7 +1061,7 @@ export default function Dashboard() {
     if (autoPushTimerRef.current !== null) {
       window.clearTimeout(autoPushTimerRef.current);
     }
-    const syncDelay = lastAutoPushFingerprintRef.current ? 3_000 : 0;
+    const syncDelay = lastAutoPushFingerprintRef.current ? 15_000 : 0;
     autoPushTimerRef.current = window.setTimeout(() => {
       lastAutoPushAttemptFingerprintRef.current = fingerprint;
       void handleCloudPush({ automatic: true, mode: "account", sourceData: data }).then((saved) => {
