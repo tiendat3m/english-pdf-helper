@@ -9,6 +9,8 @@ import {
   CalendarDays,
   ChevronDown,
   CircleDot,
+  CloudDownload,
+  CloudUpload,
   Download,
   Flame,
   GraduationCap,
@@ -2526,6 +2528,37 @@ export default function Dashboard() {
               </button>
               {openHeaderMenu === "backup" && (
                 <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-stone-200 bg-white p-2 shadow-2xl dark:border-stone-700 dark:bg-stone-900">
+                  {auth.isAuthEnabled && auth.isSignedIn && (
+                    <>
+                      <button
+                        type="button"
+                        title="Save account data"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setOpenHeaderMenu(null);
+                          void handleCloudPush({ mode: "account" });
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-wait disabled:opacity-60 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        <CloudUpload className="h-3.5 w-3.5" />
+                        Save account data
+                      </button>
+                      <button
+                        type="button"
+                        title="Load account data"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setOpenHeaderMenu(null);
+                          void handleCloudPull({ mode: "account" });
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-wait disabled:opacity-60 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        <CloudDownload className="h-3.5 w-3.5" />
+                        Load account data
+                      </button>
+                      <div className="my-1 h-px bg-stone-100 dark:bg-stone-800" />
+                    </>
+                  )}
                   <button
                     type="button"
                     title="Export local backup"
