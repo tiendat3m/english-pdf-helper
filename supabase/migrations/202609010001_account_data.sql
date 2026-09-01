@@ -77,3 +77,5 @@ create index if not exists account_bookmarks_user_book_page_idx on public.accoun
 create index if not exists account_page_statuses_user_book_page_idx on public.account_page_statuses (user_id, book_id, page_number);
 create index if not exists account_vocabulary_user_book_idx on public.account_vocabulary (user_id, book_id);
 create index if not exists account_activities_user_created_idx on public.account_activities (user_id, created_at desc);
+
+notify pgrst, 'reload schema';

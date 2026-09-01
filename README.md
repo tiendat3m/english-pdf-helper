@@ -79,11 +79,13 @@ npm run build
 
 Signed-in accounts use Supabase as the source of truth: Postgres stores books, annotations, bookmarks, page statuses, vocabulary, and activity rows by `user_id`, while Supabase Storage stores each PDF file under that account. IndexedDB remains a local cache so the reader stays fast and existing local data can be backfilled into the account database.
 
-Before enabling account data on a new Supabase project, run:
+Before enabling account data on a new Supabase project, open Supabase Dashboard -> SQL Editor, paste the full migration file, and click Run:
 
 ```sql
 -- supabase/migrations/202609010001_account_data.sql
 ```
+
+The migration ends with `notify pgrst, 'reload schema';` so the API can see the new tables immediately.
 
 Set these environment variables in Vercel:
 
