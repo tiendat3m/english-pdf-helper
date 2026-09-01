@@ -38,6 +38,14 @@ import StudyWorkspacePanel from "./StudyWorkspacePanel";
 import Toolbar from "./Toolbar";
 import VocabularyPanel from "./VocabularyPanel";
 import { AccountControls, useAppAuth } from "./AppAuthProvider";
+import {
+  deleteAccountBooks,
+  deleteAccountRecords,
+  loadAccountData as loadAccountDatabase,
+  saveAccountData,
+  upsertAccountBook,
+  upsertAccountRecords
+} from "@/lib/accountDataClient";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from "@/lib/constants";
 import {
   createAppDataBackup,
@@ -48,6 +56,7 @@ import {
   importAppDataBackup,
   loadAppData,
   migrateLegacyDataIntoActiveWorkspace,
+  mergeAppDataIntoActiveWorkspace,
   moveWorkspaceDataIntoActiveWorkspace,
   permanentlyDeleteBooks,
   recoverBrowserBookDataIntoActiveWorkspace,
@@ -896,7 +905,26 @@ export default function Dashboard() {
         auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await moveWorkspaceDataIntoActiveWorkspace("guest") : false;
       const recoveredBrowserBooks =
         auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await recoverBrowserBookDataIntoActiveWorkspace() : false;
-      const next = await loadAppData();
+      let next = await loadAppData();
+      if (auth.isAuthEnabled && auth.isSignedIn && auth.userId) {
+        try {
+          setAccountSyncStatus("Loading account database...");
+          const accountData = await loadAccountDatabase(auth);
+          if (accountData && hasPortableData(accountData)) {
+            await mergeAppDataIntoActiveWorkspace(accountData);
+            next = await loadAppData();
+          }
+          if (hasPortableData(next)) {
+            void saveAccountData(auth, next, { uploadPdfs: true })
+              .then(() => setAccountSyncStatus("Account database saved."))
+              .catch(reportAccountDatabaseError);
+          } else {
+            setAccountSyncStatus("Account database ready.");
+          }
+        } catch (error) {
+          reportAccountDatabaseError(error);
+        }
+      }
       if (cancelled) {
         return;
       }
@@ -940,6 +968,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDataWorkspaceKey, auth.isAuthEnabled, auth.isSignedIn, auth.userId]);
 
   useEffect(() => {
@@ -1220,8 +1249,39 @@ export default function Dashboard() {
     return next;
   }
 
+  function reportAccountDatabaseError(error: unknown) {
+    const message = error instanceof Error ? error.message : "Account database is unavailable.";
+    setAccountSyncStatus(`${message} Local cache kept.`);
+    console.warn(message);
+  }
+
+  function saveBookToAccount(book: BookRecord, options: { uploadPdf?: boolean } = {}) {
+    void upsertAccountBook(auth, book, options)
+      .then(() => setAccountSyncStatus("Account database saved."))
+      .catch(reportAccountDatabaseError);
+  }
+
+  function saveRecordsToAccount(
+    collection: "annotations" | "bookmarks" | "pageStatuses" | "vocabulary" | "activities",
+    records: Parameters<typeof upsertAccountRecords>[2]
+  ) {
+    void upsertAccountRecords(auth, collection, records)
+      .then(() => setAccountSyncStatus("Account database saved."))
+      .catch(reportAccountDatabaseError);
+  }
+
+  function deleteRecordsFromAccount(
+    collection: "annotations" | "bookmarks" | "pageStatuses" | "vocabulary" | "activities",
+    ids: string[]
+  ) {
+    void deleteAccountRecords(auth, collection, ids)
+      .then(() => setAccountSyncStatus("Account database saved."))
+      .catch(reportAccountDatabaseError);
+  }
+
   async function handleImport(file: File) {
     const book = await importBook(file);
+    saveBookToAccount(book, { uploadPdf: true });
     setIsScratchOpen(false);
     setEditor((current) => ({
       ...current,
@@ -1262,6 +1322,7 @@ export default function Dashboard() {
     if (!deletedBook) {
       return;
     }
+    saveBookToAccount(deletedBook);
 
     const remainingBooks = activeBooks.filter((book) => book.id !== bookId);
     if (editor.activeBookId === bookId) {
@@ -1284,6 +1345,7 @@ export default function Dashboard() {
     if (!restoredBook) {
       return;
     }
+    saveBookToAccount(restoredBook);
 
     setEditor((current) => ({
       ...current,
@@ -1300,6 +1362,9 @@ export default function Dashboard() {
     }
 
     await permanentlyDeleteBooks(bookIds);
+    void deleteAccountBooks(auth, bookIds)
+      .then(() => setAccountSyncStatus("Account database saved."))
+      .catch(reportAccountDatabaseError);
     if (editor.activeBookId && bookIds.includes(editor.activeBookId)) {
       const nextBook = activeBooks.find((book) => !bookIds.includes(book.id)) ?? null;
       setEditor((current) => ({
@@ -1320,6 +1385,7 @@ export default function Dashboard() {
       return;
     }
     const next = await touchBook(activeBook, patch);
+    saveBookToAccount(next);
     setData((current) => ({
       ...current,
       books: current.books.map((book) => (book.id === next.id ? next : book))
@@ -1354,6 +1420,7 @@ export default function Dashboard() {
     setUndoStack((current) => [...current, { type: "add", annotations: [annotation] }]);
     setRedoStack([]);
     void saveAnnotation(annotation);
+    saveRecordsToAccount("annotations", [annotation]);
   }
 
   function updateAnnotation(annotation: Annotation) {
@@ -1362,6 +1429,7 @@ export default function Dashboard() {
       annotations: current.annotations.map((item) => (item.id === annotation.id ? annotation : item))
     }));
     void saveAnnotation(annotation);
+    saveRecordsToAccount("annotations", [annotation]);
   }
 
   function removeAnnotations(ids: string[]) {
@@ -1379,6 +1447,7 @@ export default function Dashboard() {
     setRedoStack([]);
     setData((current) => ({ ...current, annotations: current.annotations.filter((item) => !idSet.has(item.id)) }));
     void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
+    deleteRecordsFromAccount("annotations", annotationsToDelete.map((annotation) => annotation.id));
   }
 
   function removeAnnotation(id: string) {
@@ -1406,11 +1475,13 @@ export default function Dashboard() {
       const ids = new Set(action.annotations.map((annotation) => annotation.id));
       setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
       void Promise.all(action.annotations.map((annotation) => deleteAnnotation(annotation.id)));
+      deleteRecordsFromAccount("annotations", action.annotations.map((annotation) => annotation.id));
       return;
     }
 
     setData((current) => ({ ...current, annotations: [...current.annotations, ...action.annotations] }));
     void Promise.all(action.annotations.map((annotation) => saveAnnotation(annotation)));
+    saveRecordsToAccount("annotations", action.annotations);
   }
 
   function handleRedo() {
@@ -1425,12 +1496,14 @@ export default function Dashboard() {
     if (action.type === "add") {
       setData((current) => ({ ...current, annotations: [...current.annotations, ...action.annotations] }));
       void Promise.all(action.annotations.map((annotation) => saveAnnotation(annotation)));
+      saveRecordsToAccount("annotations", action.annotations);
       return;
     }
 
     const ids = new Set(action.annotations.map((annotation) => annotation.id));
     setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
     void Promise.all(action.annotations.map((annotation) => deleteAnnotation(annotation.id)));
+    deleteRecordsFromAccount("annotations", action.annotations.map((annotation) => annotation.id));
   }
 
   function clearCurrentPageAnnotations() {
@@ -1452,6 +1525,7 @@ export default function Dashboard() {
     const ids = new Set(annotationsToDelete.map((annotation) => annotation.id));
     setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
     void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
+    deleteRecordsFromAccount("annotations", annotationsToDelete.map((annotation) => annotation.id));
   }
 
   function clearScratchAnnotations() {
@@ -1466,6 +1540,7 @@ export default function Dashboard() {
     const ids = new Set(annotationsToDelete.map((annotation) => annotation.id));
     setData((current) => ({ ...current, annotations: current.annotations.filter((annotation) => !ids.has(annotation.id)) }));
     void Promise.all(annotationsToDelete.map((annotation) => deleteAnnotation(annotation.id)));
+    deleteRecordsFromAccount("annotations", annotationsToDelete.map((annotation) => annotation.id));
   }
 
   async function handleSetPageStatus(status: PageStatus) {
@@ -1473,6 +1548,7 @@ export default function Dashboard() {
       return;
     }
     const record = await savePageStatus(activeBook.id, editor.currentPage, status);
+    saveRecordsToAccount("pageStatuses", [record]);
     setData((current) => ({
       ...current,
       pageStatuses: [...current.pageStatuses.filter((item) => item.id !== record.id), record]
@@ -1492,6 +1568,7 @@ export default function Dashboard() {
       createdAt: nowIso()
     };
     await saveBookmark(bookmark);
+    saveRecordsToAccount("bookmarks", [bookmark]);
     setData((current) => ({ ...current, bookmarks: [...current.bookmarks, bookmark] }));
   }
 
@@ -1649,6 +1726,7 @@ export default function Dashboard() {
       updatedAt: nowIso()
     };
     await saveVocabulary(record);
+    saveRecordsToAccount("vocabulary", [record]);
     setData((current) => ({ ...current, vocabulary: [record, ...current.vocabulary] }));
     setAiSelection(null);
     setAiResult(null);
@@ -1722,6 +1800,7 @@ export default function Dashboard() {
   async function handleVocabularyStatus(record: VocabularyRecord, status: VocabStatus) {
     const next = scheduleVocabularyReview(record, status);
     await saveVocabulary(next);
+    saveRecordsToAccount("vocabulary", [next]);
     setData((current) => ({
       ...current,
       vocabulary: current.vocabulary.map((item) => (item.id === record.id ? next : item))
@@ -1731,6 +1810,7 @@ export default function Dashboard() {
   async function handleVocabularyUpdate(record: VocabularyRecord) {
     const next = { ...record, updatedAt: nowIso() };
     await saveVocabulary(next);
+    saveRecordsToAccount("vocabulary", [next]);
     setData((current) => ({
       ...current,
       vocabulary: current.vocabulary.map((item) => (item.id === record.id ? next : item))
@@ -1822,11 +1902,13 @@ export default function Dashboard() {
       return;
     }
     await Promise.all(imported.map((record) => saveVocabulary(record)));
+    saveRecordsToAccount("vocabulary", imported);
     setData((current) => ({ ...current, vocabulary: [...imported, ...current.vocabulary] }));
   }
 
   async function handleVocabularyDelete(id: string) {
     await deleteVocabulary(id);
+    deleteRecordsFromAccount("vocabulary", [id]);
     setData((current) => ({ ...current, vocabulary: current.vocabulary.filter((item) => item.id !== id) }));
   }
 
@@ -1846,6 +1928,9 @@ export default function Dashboard() {
     try {
       await importAppDataBackup(file);
       const next = await refreshData();
+      void saveAccountData(auth, next, { uploadPdfs: true })
+        .then(() => setAccountSyncStatus("Account database saved."))
+        .catch(reportAccountDatabaseError);
       const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
       if (nextActiveBook) {
         setEditor((current) => ({

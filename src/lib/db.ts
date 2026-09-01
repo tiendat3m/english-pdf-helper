@@ -265,6 +265,14 @@ async function writeAppDataToDb(db: IDBPDatabase<IeltsPdfNotesDB>, data: AppData
   ]);
 }
 
+export async function mergeAppDataIntoActiveWorkspace(data: AppData) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  await writeAppDataToDb(await getDb(), data);
+}
+
 export async function migrateLegacyDataIntoActiveWorkspace() {
   if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
     return false;

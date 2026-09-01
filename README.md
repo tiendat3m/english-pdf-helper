@@ -75,9 +75,25 @@ In the PDF viewer, select text in the rendered PDF text layer. The AI Study Coac
 npm run build
 ```
 
-## Local Storage Model
+## Account Data Model
 
-The app has no backend. IndexedDB stores books, annotations, bookmarks, page statuses, vocabulary, and activity history. Original PDFs are never modified; annotations are separate records keyed by book and page.
+Signed-in accounts use Supabase as the source of truth: Postgres stores books, annotations, bookmarks, page statuses, vocabulary, and activity rows by `user_id`, while Supabase Storage stores each PDF file under that account. IndexedDB remains a local cache so the reader stays fast and existing local data can be backfilled into the account database.
+
+Before enabling account data on a new Supabase project, run:
+
+```sql
+-- supabase/migrations/202609010001_account_data.sql
+```
+
+Set these environment variables in Vercel:
+
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+SUPABASE_SYNC_BUCKET=ielts-sync
+```
+
+Guest mode stays local-only. Original PDFs are never modified; annotations are separate records keyed by book and page.
 
 ## Main Source Map
 
