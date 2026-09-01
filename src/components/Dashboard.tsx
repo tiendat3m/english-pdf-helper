@@ -161,6 +161,7 @@ const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
 const ENABLE_BACKGROUND_CLOUD_SYNC = false;
+const ENABLE_ACCOUNT_BACKUP_CONTROLS = false;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "auto",
@@ -923,7 +924,7 @@ export default function Dashboard() {
       }
 
       if (migrated || movedGuestData || recoveredBrowserBooks) {
-        setBackupStatus("Existing browser data moved into this account. Account data will save shortly.");
+        setBackupStatus("Existing browser data moved into this account.");
       }
       setIsNavigationReady(true);
       setIsLoading(false);
@@ -2524,7 +2525,7 @@ export default function Dashboard() {
               </button>
               {openHeaderMenu === "backup" && (
                 <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-stone-200 bg-white p-2 shadow-2xl dark:border-stone-700 dark:bg-stone-900">
-                  {auth.isAuthEnabled && auth.isSignedIn && (
+                  {ENABLE_ACCOUNT_BACKUP_CONTROLS && auth.isAuthEnabled && auth.isSignedIn && (
                     <>
                       <button
                         type="button"
