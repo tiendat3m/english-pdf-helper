@@ -40,7 +40,6 @@ import VocabularyPanel from "./VocabularyPanel";
 import { AccountControls, useAppAuth } from "./AppAuthProvider";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from "@/lib/constants";
 import {
-  appDataBackupToBlob,
   createAppDataBackup,
   deleteAnnotation,
   deleteVocabulary,
@@ -161,7 +160,7 @@ const DAILY_SESSION_STORAGE_KEY = "ielts-pdf-notes-daily-session";
 const MAX_AI_CACHE_ENTRIES = 80;
 const CLOUD_SYNC_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_CLOUD_SYNC_PARTS = 500;
-const ENABLE_BACKGROUND_CLOUD_SYNC = true;
+const ENABLE_BACKGROUND_CLOUD_SYNC = false;
 const WORKSPACE_URL_KEYS = ["tab", "book", "page", "zoom", "workspace", "sidebar", "open"];
 const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "auto",
@@ -2127,13 +2126,8 @@ export default function Dashboard() {
         return true;
       }
 
-      if (!options.automatic && currentHasData) {
-        const recovery = appDataBackupToBlob(await createAppDataBackup());
-        downloadBlob(recovery, `ielts-pdf-notes-recovery-before-cloud-restore-${nowIso().slice(0, 10)}.json`);
-      }
-
       isRestoringCloudRef.current = true;
-      await restoreAppDataBackup(backup, { replace: true });
+      await restoreAppDataBackup(backup, { replace: false });
       const next = await refreshData();
       const nextFingerprint = dataSyncFingerprint(next);
       lastAutoPushFingerprintRef.current = nextFingerprint;
@@ -2154,9 +2148,9 @@ export default function Dashboard() {
         setIsWorkspaceOpen(true);
       }
       if (!options.automatic) {
-        setBackupStatus("Account backup restored.");
+        setBackupStatus("Account backup merged.");
       }
-      setAccountSyncStatus("Account data loaded.");
+      setAccountSyncStatus("Account data merged.");
       return true;
     } catch (error) {
       const missingAccountBackup = isMissingAccountBackupError(error);
@@ -2189,7 +2183,7 @@ export default function Dashboard() {
     } finally {
       isRestoringCloudRef.current = false;
       setIsSyncing(false);
-      if (shouldPushLocalAfterPull && hasActiveBooks(data)) {
+      if (ENABLE_BACKGROUND_CLOUD_SYNC && shouldPushLocalAfterPull && hasActiveBooks(data)) {
         window.setTimeout(() => {
           void handleCloudPush({ automatic: true, mode: "account", sourceData: data });
         }, 300);
@@ -2547,7 +2541,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         type="button"
-                        title="Load account data"
+                        title="Merge account backup"
                         disabled={isSyncing}
                         onClick={() => {
                           setOpenHeaderMenu(null);
@@ -2556,7 +2550,7 @@ export default function Dashboard() {
                         className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-wait disabled:opacity-60 dark:text-stone-300 dark:hover:bg-stone-800"
                       >
                         <CloudDownload className="h-3.5 w-3.5" />
-                        Load account data
+                        Merge account backup
                       </button>
                       <div className="my-1 h-px bg-stone-100 dark:bg-stone-800" />
                     </>
