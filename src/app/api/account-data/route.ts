@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth, verifyToken } from "@clerk/nextjs/server";
-import { createSignedDownloadUrl, createSignedUploadUrl, getSupabaseSyncConfig } from "@/lib/supabaseStorageSync";
+import {
+  createSignedDownloadUrl,
+  createSignedUploadUrl,
+  deleteStorageObjects,
+  getSupabaseSyncConfig
+} from "@/lib/supabaseStorageSync";
 import type { Annotation, AppData, BookRecord, BookmarkRecord, PageStatusRecord, VocabularyRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -131,6 +136,35 @@ async function deleteRows(userId: string, table: string, ids: string[]) {
       headers: getHeaders()
     });
   }
+}
+
+async function deleteRowsByBookId(userId: string, table: string, bookIds: string[]) {
+  for (const bookId of bookIds) {
+    await supabaseRest(`${table}?${userFilter(userId)}&book_id=eq.${encodeURIComponent(bookId)}`, {
+      method: "DELETE",
+      headers: getHeaders()
+    });
+  }
+}
+
+async function deleteBooksFromAccount(userId: string, ids: string[]) {
+  const bookIds = Array.from(new Set(ids.map(String).filter(Boolean)));
+  if (!bookIds.length) {
+    return;
+  }
+
+  await Promise.all([
+    deleteRowsByBookId(userId, TABLES.annotations, bookIds),
+    deleteRowsByBookId(userId, TABLES.bookmarks, bookIds),
+    deleteRowsByBookId(userId, TABLES.pageStatuses, bookIds),
+    deleteRowsByBookId(userId, TABLES.vocabulary, bookIds),
+    deleteRows(userId, "account_books", bookIds)
+  ]);
+
+  await deleteStorageObjects(
+    getSupabaseSyncConfig(),
+    bookIds.map((bookId) => getBookStoragePath(userId, bookId))
+  );
 }
 
 function toStoredBookRow(userId: string, book: StoredBook) {
@@ -295,7 +329,7 @@ export async function POST(request: Request) {
     }
 
     if (body.operation === "deleteBooks" && Array.isArray(body.ids)) {
-      await deleteRows(userId, "account_books", body.ids.map(String));
+      await deleteBooksFromAccount(userId, body.ids);
       return NextResponse.json({});
     }
 

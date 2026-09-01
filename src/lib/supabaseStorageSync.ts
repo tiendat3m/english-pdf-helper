@@ -191,3 +191,21 @@ export async function createSignedDownloadUrls(config: SupabaseSyncConfig, objec
   await ensureSyncBucket(config);
   return Promise.all(objectPaths.map((objectPath) => signDownloadUrl(config, objectPath)));
 }
+
+export async function deleteStorageObjects(config: SupabaseSyncConfig, objectPaths: string[]) {
+  const paths = Array.from(new Set(objectPaths.filter(Boolean)));
+  if (!paths.length) {
+    return;
+  }
+
+  await ensureSyncBucket(config);
+  const response = await fetchSupabase(`${config.url}/storage/v1/object/${encodeURIComponent(config.bucket)}`, {
+    method: "DELETE",
+    headers: getHeaders(config),
+    body: JSON.stringify({ prefixes: paths })
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(await readSupabaseError(response));
+  }
+}
