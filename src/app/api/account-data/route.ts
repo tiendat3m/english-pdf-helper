@@ -310,6 +310,7 @@ export async function POST(request: Request) {
       vocabulary?: VocabularyRecord[];
       activities?: StoredActivity[];
       needsUpload?: boolean;
+      uploadBookIds?: string[];
     };
 
     if (body.operation === "upsertBook" && body.book) {
@@ -344,7 +345,12 @@ export async function POST(request: Request) {
         upsertRows(TABLES.activities, (body.activities ?? []).map((record) => toRecordRow(userId, record)))
       ]);
 
-      const uploadUrls = await signedUploadUrls(userId, books, Boolean(body.needsUpload));
+      const uploadBookIds = new Set((body.uploadBookIds ?? []).map(String));
+      const uploadUrls = await signedUploadUrls(
+        userId,
+        books.filter((book) => uploadBookIds.has(book.id)),
+        uploadBookIds.size > 0
+      );
       return NextResponse.json({ uploadUrls });
     }
 

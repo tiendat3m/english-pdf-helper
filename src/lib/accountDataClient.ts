@@ -72,14 +72,14 @@ async function requestAccountData<T>(auth: AccountAuth, init: RequestInit = {}) 
   return (await response.json()) as T;
 }
 
-async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: string) {
-  const form = new FormData();
-  form.append("cacheControl", "0");
-  form.append("", blob, fileName);
+async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob) {
   const response = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "x-upsert": "true" },
-    body: form
+    headers: {
+      "content-type": blob.type || "application/pdf",
+      "x-upsert": "true"
+    },
+    body: blob
   });
 
   if (!response.ok) {
@@ -89,17 +89,27 @@ async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: str
 
 async function downloadBookBlob(book: AccountBookPayload) {
   if (!book.downloadUrl) {
-    return null;
+    return {
+      ...book,
+      blob: new Blob([], { type: "application/pdf" }),
+      fileUnavailable: true
+    };
   }
 
   const response = await fetch(book.downloadUrl, { cache: "no-store" });
   if (!response.ok) {
-    return null;
+    return {
+      ...book,
+      blob: new Blob([], { type: "application/pdf" }),
+      fileUnavailable: true
+    };
   }
 
+  const blob = await response.blob();
   return {
     ...book,
-    blob: await response.blob()
+    blob,
+    fileUnavailable: blob.size === 0
   };
 }
 
@@ -126,9 +136,7 @@ export async function loadAccountData(auth: AccountAuth) {
     return null;
   }
 
-  const books = (await Promise.all(payload.data.books.map(downloadBookBlob))).filter((book): book is BookRecord =>
-    Boolean(book)
-  );
+  const books = await Promise.all(payload.data.books.map(downloadBookBlob));
 
   return {
     ...payload.data,
@@ -147,8 +155,8 @@ export async function upsertAccountBook(auth: AccountAuth, book: BookRecord, opt
   });
 
   const uploadUrl = payload?.uploadUrls?.[0]?.uploadUrl;
-  if (options.uploadPdf && uploadUrl) {
-    await uploadPdfToSignedUrl(uploadUrl, book.blob, book.fileName);
+  if (options.uploadPdf && uploadUrl && !book.fileUnavailable && book.blob.size > 0) {
+    await uploadPdfToSignedUrl(uploadUrl, book.blob);
   }
 }
 
@@ -195,6 +203,7 @@ export async function deleteAccountBooks(auth: AccountAuth, ids: string[]) {
 
 export async function saveAccountData(auth: AccountAuth, data: AppData, options: { uploadPdfs?: boolean } = {}) {
   const books = data.books.map(toAccountBookPayload);
+  const uploadableBooks = data.books.filter((book) => !book.fileUnavailable && book.blob.size > 0);
   const payload = await requestAccountData<AccountMutationResponse>(auth, {
     method: "POST",
     body: JSON.stringify({
@@ -205,19 +214,19 @@ export async function saveAccountData(auth: AccountAuth, data: AppData, options:
       pageStatuses: data.pageStatuses,
       vocabulary: data.vocabulary,
       activities: data.activities,
-      needsUpload: Boolean(options.uploadPdfs)
+      uploadBookIds: options.uploadPdfs ? uploadableBooks.map((book) => book.id) : []
     })
   });
 
   if (options.uploadPdfs && payload?.uploadUrls?.length) {
-    const bookById = new Map(data.books.map((book) => [book.id, book]));
+    const bookById = new Map(uploadableBooks.map((book) => [book.id, book]));
     await Promise.all(
       payload.uploadUrls.map((upload) => {
         const book = bookById.get(upload.bookId);
         if (!book) {
           return Promise.resolve();
         }
-        return uploadPdfToSignedUrl(upload.uploadUrl, book.blob, upload.fileName);
+        return uploadPdfToSignedUrl(upload.uploadUrl, book.blob);
       })
     );
   }

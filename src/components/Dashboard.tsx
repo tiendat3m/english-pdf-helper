@@ -913,10 +913,17 @@ export default function Dashboard() {
           if (accountData && hasPortableData(accountData)) {
             await mergeAppDataIntoActiveWorkspace(accountData);
             next = await loadAppData();
+            if (accountData.books.some((book) => book.fileUnavailable)) {
+              setAccountSyncStatus("Account data loaded. Some PDF files need re-import.");
+            }
           }
           if (hasPortableData(next)) {
             void saveAccountData(auth, next, { uploadPdfs: true })
-              .then(() => setAccountSyncStatus("Account database saved."))
+              .then(() => {
+                if (!next.books.some((book) => book.fileUnavailable)) {
+                  setAccountSyncStatus("Account database saved.");
+                }
+              })
               .catch(reportAccountDatabaseError);
           } else {
             setAccountSyncStatus("Account database ready.");
@@ -1280,8 +1287,22 @@ export default function Dashboard() {
   }
 
   async function handleImport(file: File) {
-    const book = await importBook(file);
+    const missingBook = data.books.find(
+      (book) => book.fileUnavailable && (book.fileName === file.name || book.size === file.size)
+    );
+    const book = missingBook
+      ? await touchBook(missingBook, {
+        blob: file,
+        fileName: file.name,
+        size: file.size,
+        fileUnavailable: false,
+        deletedAt: undefined
+      })
+      : await importBook(file);
     saveBookToAccount(book, { uploadPdf: true });
+    if (missingBook) {
+      setAccountSyncStatus("PDF file re-attached to account database.");
+    }
     setIsScratchOpen(false);
     setEditor((current) => ({
       ...current,

@@ -1015,7 +1015,14 @@ export default function PdfViewer({
               willChange: previewScale === 1 ? undefined : "transform"
             }}
           >
-            {pdfFile ? (
+            {book.fileUnavailable ? (
+              <div className="max-w-md rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool dark:bg-stone-900 dark:text-rose-200">
+                <div className="font-bold">This PDF file is missing from account storage.</div>
+                <div className="mt-2 text-xs leading-5 text-rose-500 dark:text-rose-200">
+                  Re-import this PDF while signed in to upload the file again. Notes, vocabulary, and progress are still kept in the account database.
+                </div>
+              </div>
+            ) : pdfFile ? (
               <Document
               key={book.id}
               file={pdfFile}

@@ -43,6 +43,7 @@ export interface BookRecord {
   zoom: number;
   progress: number;
   deletedAt?: string;
+  fileUnavailable?: boolean;
 }
 
 export interface Point {
