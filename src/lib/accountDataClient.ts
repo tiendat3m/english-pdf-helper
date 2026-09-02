@@ -72,14 +72,14 @@ async function requestAccountData<T>(auth: AccountAuth, init: RequestInit = {}) 
   return (await response.json()) as T;
 }
 
-async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob) {
+async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: string) {
+  const form = new FormData();
+  form.append("cacheControl", "3600");
+  form.append("", blob, fileName);
   const response = await fetch(uploadUrl, {
     method: "PUT",
-    headers: {
-      "content-type": blob.type || "application/pdf",
-      "x-upsert": "true"
-    },
-    body: blob
+    headers: { "x-upsert": "true" },
+    body: form
   });
 
   if (!response.ok) {
@@ -156,7 +156,7 @@ export async function upsertAccountBook(auth: AccountAuth, book: BookRecord, opt
 
   const uploadUrl = payload?.uploadUrls?.[0]?.uploadUrl;
   if (options.uploadPdf && uploadUrl && !book.fileUnavailable && book.blob.size > 0) {
-    await uploadPdfToSignedUrl(uploadUrl, book.blob);
+    await uploadPdfToSignedUrl(uploadUrl, book.blob, book.fileName);
   }
 }
 
@@ -226,7 +226,7 @@ export async function saveAccountData(auth: AccountAuth, data: AppData, options:
         if (!book) {
           return Promise.resolve();
         }
-        return uploadPdfToSignedUrl(upload.uploadUrl, book.blob);
+        return uploadPdfToSignedUrl(upload.uploadUrl, book.blob, upload.fileName);
       })
     );
   }

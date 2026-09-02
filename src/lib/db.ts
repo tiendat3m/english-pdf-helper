@@ -270,7 +270,22 @@ export async function mergeAppDataIntoActiveWorkspace(data: AppData) {
     return;
   }
 
-  await writeAppDataToDb(await getDb(), data);
+  const db = await getDb();
+  const current = await readAppDataFromDb(db);
+  const currentBooks = new Map(current.books.map((book) => [book.id, book]));
+  const books = data.books.map((book) => {
+    const currentBook = currentBooks.get(book.id);
+    if (book.fileUnavailable && currentBook && currentBook.blob.size > 0 && !currentBook.fileUnavailable) {
+      return {
+        ...book,
+        blob: currentBook.blob,
+        fileUnavailable: false
+      };
+    }
+    return book;
+  });
+
+  await writeAppDataToDb(db, { ...data, books });
 }
 
 export async function migrateLegacyDataIntoActiveWorkspace() {
