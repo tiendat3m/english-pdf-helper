@@ -34,6 +34,12 @@ interface AccountMutationResponse {
   }>;
 }
 
+export interface AccountSaveResult {
+  books: number;
+  pdfUploads: number;
+  skippedMissingPdfs: number;
+}
+
 function canUseAccountData(auth: AccountAuth) {
   return auth.isAuthEnabled && auth.isSignedIn && Boolean(auth.userId);
 }
@@ -201,9 +207,10 @@ export async function deleteAccountBooks(auth: AccountAuth, ids: string[]) {
   });
 }
 
-export async function saveAccountData(auth: AccountAuth, data: AppData, options: { uploadPdfs?: boolean } = {}) {
+export async function saveAccountData(auth: AccountAuth, data: AppData, options: { uploadPdfs?: boolean } = {}): Promise<AccountSaveResult> {
   const books = data.books.map(toAccountBookPayload);
   const uploadableBooks = data.books.filter((book) => !book.fileUnavailable && book.blob.size > 0);
+  const skippedMissingPdfs = data.books.filter((book) => book.fileUnavailable || book.blob.size === 0).length;
   const payload = await requestAccountData<AccountMutationResponse>(auth, {
     method: "POST",
     body: JSON.stringify({
@@ -218,6 +225,7 @@ export async function saveAccountData(auth: AccountAuth, data: AppData, options:
     })
   });
 
+  let pdfUploads = 0;
   if (options.uploadPdfs && payload?.uploadUrls?.length) {
     const bookById = new Map(uploadableBooks.map((book) => [book.id, book]));
     await Promise.all(
@@ -226,8 +234,15 @@ export async function saveAccountData(auth: AccountAuth, data: AppData, options:
         if (!book) {
           return Promise.resolve();
         }
+        pdfUploads += 1;
         return uploadPdfToSignedUrl(upload.uploadUrl, book.blob, upload.fileName);
       })
     );
   }
+
+  return {
+    books: books.length,
+    pdfUploads,
+    skippedMissingPdfs
+  };
 }

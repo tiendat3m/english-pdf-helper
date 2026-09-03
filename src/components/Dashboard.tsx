@@ -44,7 +44,8 @@ import {
   loadAccountData as loadAccountDatabase,
   saveAccountData,
   upsertAccountBook,
-  upsertAccountRecords
+  upsertAccountRecords,
+  type AccountSaveResult
 } from "@/lib/accountDataClient";
 import { DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from "@/lib/constants";
 import {
@@ -919,9 +920,9 @@ export default function Dashboard() {
           }
           if (hasPortableData(next)) {
             void saveAccountData(auth, next, { uploadPdfs: true })
-              .then(() => {
+              .then((result) => {
                 if (!next.books.some((book) => book.fileUnavailable)) {
-                  setAccountSyncStatus("Account database saved.");
+                  setAccountSyncStatus(accountSaveStatusMessage(result));
                 }
               })
               .catch(reportAccountDatabaseError);
@@ -1260,6 +1261,17 @@ export default function Dashboard() {
     const message = error instanceof Error ? error.message : "Account database is unavailable.";
     setAccountSyncStatus(`${message} Local cache kept.`);
     console.warn(message);
+  }
+
+  function accountSaveStatusMessage(result: AccountSaveResult) {
+    const parts = [`Saved ${result.books} book${result.books === 1 ? "" : "s"}`];
+    if (result.pdfUploads) {
+      parts.push(`uploaded ${result.pdfUploads} PDF${result.pdfUploads === 1 ? "" : "s"}`);
+    }
+    if (result.skippedMissingPdfs) {
+      parts.push(`${result.skippedMissingPdfs} PDF${result.skippedMissingPdfs === 1 ? "" : "s"} need re-import`);
+    }
+    return `${parts.join(", ")}.`;
   }
 
   function saveBookToAccount(book: BookRecord, options: { uploadPdf?: boolean } = {}) {
@@ -1950,7 +1962,7 @@ export default function Dashboard() {
       await importAppDataBackup(file);
       const next = await refreshData();
       void saveAccountData(auth, next, { uploadPdfs: true })
-        .then(() => setAccountSyncStatus("Account database saved."))
+        .then((result) => setAccountSyncStatus(accountSaveStatusMessage(result)))
         .catch(reportAccountDatabaseError);
       const nextActiveBook = next.books.find((book) => !book.deletedAt) ?? null;
       if (nextActiveBook) {
@@ -1970,6 +1982,27 @@ export default function Dashboard() {
       if (backupInputRef.current) {
         backupInputRef.current.value = "";
       }
+    }
+  }
+
+  async function handleRepairAccountData() {
+    setIsSyncing(true);
+    setBackupStatus("Repairing account data...");
+    setAccountSyncStatus("Saving local books to account database...");
+    try {
+      const next = await refreshData();
+      if (!hasPortableData(next)) {
+        throw new Error("No local data to repair.");
+      }
+      const result = await saveAccountData(auth, next, { uploadPdfs: true });
+      setBackupStatus("Account data repaired.");
+      setAccountSyncStatus(accountSaveStatusMessage(result));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not repair account data.";
+      setBackupStatus(message);
+      reportAccountDatabaseError(error);
+    } finally {
+      setIsSyncing(false);
     }
   }
 
@@ -2631,6 +2664,24 @@ export default function Dashboard() {
               </button>
               {openHeaderMenu === "backup" && (
                 <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-stone-200 bg-white p-2 shadow-2xl dark:border-stone-700 dark:bg-stone-900">
+                  {auth.isAuthEnabled && auth.isSignedIn && (
+                    <>
+                      <button
+                        type="button"
+                        title="Repair account data"
+                        disabled={isSyncing}
+                        onClick={() => {
+                          setOpenHeaderMenu(null);
+                          void handleRepairAccountData();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs font-black text-stone-600 transition hover:bg-stone-100 hover:text-sage disabled:cursor-wait disabled:opacity-60 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        <CloudUpload className="h-3.5 w-3.5" />
+                        Repair account data
+                      </button>
+                      <div className="my-1 h-px bg-stone-100 dark:bg-stone-800" />
+                    </>
+                  )}
                   {ENABLE_ACCOUNT_BACKUP_CONTROLS && auth.isAuthEnabled && auth.isSignedIn && (
                     <>
                       <button
