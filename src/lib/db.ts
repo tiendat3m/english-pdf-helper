@@ -252,6 +252,55 @@ function hasActiveStoredBooks(data: AppData) {
   return data.books.some((book) => !book.deletedAt);
 }
 
+function hasAvailableBookFile(book: BookRecord) {
+  return !book.deletedAt && !book.fileUnavailable && book.blob.size > 0;
+}
+
+function canRecoverMissingBookFile(book: BookRecord) {
+  return !book.deletedAt && (book.fileUnavailable || book.blob.size === 0);
+}
+
+function bookFilesMatch(missingBook: BookRecord, sourceBook: BookRecord) {
+  if (missingBook.id === sourceBook.id) {
+    return true;
+  }
+
+  const sameFileName = Boolean(missingBook.fileName && sourceBook.fileName && missingBook.fileName === sourceBook.fileName);
+  const sameSize = missingBook.size > 0 && sourceBook.size > 0 && missingBook.size === sourceBook.size;
+  if (sameFileName && (!missingBook.size || !sourceBook.size || sameSize)) {
+    return true;
+  }
+
+  return Boolean(missingBook.title && sourceBook.title && missingBook.title === sourceBook.title && sameSize);
+}
+
+async function getBrowserBookRecoverySources() {
+  const activeDbName = getWorkspaceDbName(activeWorkspaceKey);
+  const sources = new Map<string, string>();
+  const addSource = (label: string, dbName: string) => {
+    if (dbName !== activeDbName && !sources.has(dbName)) {
+      sources.set(dbName, label);
+    }
+  };
+
+  addSource("guest workspace", getWorkspaceDbName("guest"));
+  addSource("legacy workspace", LEGACY_DB_NAME);
+
+  const indexedDbWithDatabases = indexedDB as IDBFactory & {
+    databases?: () => Promise<Array<{ name?: string | null }>>;
+  };
+  const databases = await indexedDbWithDatabases.databases?.().catch(() => []);
+  for (const database of databases ?? []) {
+    const dbName = database.name ?? "";
+    if (!dbName || dbName === LEGACY_DB_NAME || !dbName.startsWith(DB_NAME_PREFIX)) {
+      continue;
+    }
+    addSource("another signed-in workspace", dbName);
+  }
+
+  return Array.from(sources, ([dbName, label]) => ({ dbName, label }));
+}
+
 async function writeAppDataToDb(db: IDBPDatabase<IeltsPdfNotesDB>, data: AppData) {
   const tx = db.transaction(BACKUP_STORE_NAMES, "readwrite");
   await Promise.all([
@@ -392,6 +441,63 @@ export async function recoverBrowserBookDataIntoActiveWorkspace() {
   }
 
   return false;
+}
+
+export async function recoverMissingBookFilesIntoActiveWorkspace() {
+  if (typeof window === "undefined" || activeWorkspaceKey === "guest") {
+    return 0;
+  }
+
+  const activeDb = await getDb();
+  const activeData = await readAppDataFromDb(activeDb);
+  const missingBooks = activeData.books.filter(canRecoverMissingBookFile);
+  if (!missingBooks.length) {
+    return 0;
+  }
+
+  const recoveredBooks = new Map<string, BookRecord>();
+  const sources = await getBrowserBookRecoverySources();
+  for (const source of sources) {
+    const sourceDb = await openWorkspaceDb(source.dbName);
+    try {
+      const sourceData = await readAppDataFromDb(sourceDb);
+      const sourceBooks = sourceData.books.filter(hasAvailableBookFile);
+      for (const missingBook of missingBooks) {
+        if (recoveredBooks.has(missingBook.id)) {
+          continue;
+        }
+
+        const sourceBook = sourceBooks.find((book) => bookFilesMatch(missingBook, book));
+        if (!sourceBook) {
+          continue;
+        }
+
+        recoveredBooks.set(missingBook.id, {
+          ...missingBook,
+          blob: sourceBook.blob,
+          fileName: sourceBook.fileName,
+          size: sourceBook.size,
+          fileUnavailable: false,
+          updatedAt: nowIso()
+        });
+      }
+    } finally {
+      sourceDb.close();
+    }
+  }
+
+  if (!recoveredBooks.size) {
+    return 0;
+  }
+
+  const tx = activeDb.transaction("books", "readwrite");
+  await Promise.all([...Array.from(recoveredBooks.values()).map((book) => tx.objectStore("books").put(book)), tx.done]);
+  await addActivity({
+    type: "book-restored",
+    label: `Recovered ${recoveredBooks.size} missing PDF file${recoveredBooks.size === 1 ? "" : "s"} from this browser`
+  });
+
+  return recoveredBooks.size;
 }
 
 function blobToDataUrl(blob: Blob) {

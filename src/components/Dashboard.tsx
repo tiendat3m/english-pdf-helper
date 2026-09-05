@@ -61,6 +61,7 @@ import {
   moveWorkspaceDataIntoActiveWorkspace,
   permanentlyDeleteBooks,
   recoverBrowserBookDataIntoActiveWorkspace,
+  recoverMissingBookFilesIntoActiveWorkspace,
   restoreBook,
   setActiveDataWorkspace,
   saveAnnotation,
@@ -911,18 +912,30 @@ export default function Dashboard() {
         try {
           setAccountSyncStatus("Loading account database...");
           const accountData = await loadAccountDatabase(auth);
+          let recoveredMissingFiles = 0;
           if (accountData && hasPortableData(accountData)) {
             await mergeAppDataIntoActiveWorkspace(accountData);
             next = await loadAppData();
-            if (accountData.books.some((book) => book.fileUnavailable)) {
-              setAccountSyncStatus("Account data loaded. Some PDF files need re-import.");
+            recoveredMissingFiles = await recoverMissingBookFilesIntoActiveWorkspace();
+            if (recoveredMissingFiles) {
+              next = await loadAppData();
+              setAccountSyncStatus(`Recovered ${recoveredMissingFiles} PDF file${recoveredMissingFiles === 1 ? "" : "s"} from this browser.`);
             }
           }
           if (hasPortableData(next)) {
             void saveAccountData(auth, next, { uploadPdfs: true })
               .then((result) => {
-                if (!next.books.some((book) => book.fileUnavailable)) {
+                const missingFiles = next.books.filter((book) => book.fileUnavailable).length;
+                if (recoveredMissingFiles) {
+                  setAccountSyncStatus(
+                    `Recovered and uploaded ${recoveredMissingFiles} PDF file${recoveredMissingFiles === 1 ? "" : "s"} to account storage.`
+                  );
+                } else if (!missingFiles) {
                   setAccountSyncStatus(accountSaveStatusMessage(result));
+                } else {
+                  setAccountSyncStatus(
+                    `${missingFiles} PDF file${missingFiles === 1 ? "" : "s"} need re-import once to restore account storage.`
+                  );
                 }
               })
               .catch(reportAccountDatabaseError);
@@ -1274,9 +1287,10 @@ export default function Dashboard() {
     return `${parts.join(", ")}.`;
   }
 
-  function saveBookToAccount(book: BookRecord, options: { uploadPdf?: boolean } = {}) {
-    void upsertAccountBook(auth, book, options)
-      .then(() => setAccountSyncStatus("Account database saved."))
+  function saveBookToAccount(book: BookRecord, options: { uploadPdf?: boolean; successMessage?: string } = {}) {
+    const { successMessage, ...accountOptions } = options;
+    void upsertAccountBook(auth, book, accountOptions)
+      .then(() => setAccountSyncStatus(successMessage ?? "Account database saved."))
       .catch(reportAccountDatabaseError);
   }
 
@@ -1311,10 +1325,10 @@ export default function Dashboard() {
         deletedAt: undefined
       })
       : await importBook(file);
-    saveBookToAccount(book, { uploadPdf: true });
-    if (missingBook) {
-      setAccountSyncStatus("PDF file re-attached to account database.");
-    }
+    saveBookToAccount(book, {
+      uploadPdf: true,
+      successMessage: missingBook ? "PDF file re-attached to account storage." : "Account database saved."
+    });
     setIsScratchOpen(false);
     setEditor((current) => ({
       ...current,
