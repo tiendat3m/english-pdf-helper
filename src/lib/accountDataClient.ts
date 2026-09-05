@@ -81,7 +81,7 @@ async function requestAccountData<T>(auth: AccountAuth, init: RequestInit = {}) 
 async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: string) {
   const form = new FormData();
   form.append("cacheControl", "3600");
-  form.append("", blob, fileName);
+  form.append("file", blob, fileName);
   const response = await fetch(uploadUrl, {
     method: "PUT",
     headers: { "x-upsert": "true" },
@@ -89,7 +89,14 @@ async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: str
   });
 
   if (!response.ok) {
-    throw new Error("Could not upload PDF to account storage.");
+    let message = "Could not upload PDF to account storage.";
+    try {
+      const payload = (await response.json()) as { message?: string; error?: string };
+      message = payload.message || payload.error || message;
+    } catch {
+      // Keep the default message.
+    }
+    throw new Error(message);
   }
 }
 

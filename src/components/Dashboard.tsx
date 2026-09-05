@@ -2060,7 +2060,7 @@ export default function Dashboard() {
   async function uploadCloudBlob(signedUrl: string, blob: Blob, fileName: string) {
     const uploadBody = new FormData();
     uploadBody.append("cacheControl", "0");
-    uploadBody.append("", blob, fileName);
+    uploadBody.append("file", blob, fileName);
     const response = await fetch(signedUrl, {
       method: "PUT",
       headers: { "x-upsert": "true" },
