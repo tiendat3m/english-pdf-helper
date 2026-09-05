@@ -342,7 +342,9 @@ export default function PdfViewer({
       return;
     }
     const update = () => {
-      const width = Math.max(320, Math.min(960, element.clientWidth - 64));
+      const maxReadableWidth = element.clientWidth < 1180 ? 860 : 960;
+      const horizontalPadding = element.clientWidth < 1180 ? 96 : 64;
+      const width = Math.max(320, Math.min(maxReadableWidth, element.clientWidth - horizontalPadding));
       setBaseWidth(width);
     };
     update();
@@ -903,13 +905,13 @@ export default function PdfViewer({
       <div className="border-b border-stone-200 bg-white/88 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/88">
         <div className="mx-auto flex max-w-6xl flex-col gap-3">
           <form
-            className="flex flex-wrap items-center gap-2"
+            className="flex flex-wrap items-center justify-center gap-2 lg:justify-start"
             onSubmit={(event) => {
               event.preventDefault();
               void runPdfSearch();
             }}
           >
-            <label className="flex min-w-[260px] flex-1 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
+            <label className="flex min-w-0 flex-[1_1_28rem] items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-500 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
               <Search className="h-4 w-4" />
               <input
                 value={pdfSearchQuery}
@@ -950,7 +952,7 @@ export default function PdfViewer({
                 Clear
               </button>
             )}
-            <div className="text-xs font-semibold text-stone-500 dark:text-stone-400">
+            <div className="basis-full text-center text-xs font-semibold text-stone-500 lg:basis-auto lg:text-left dark:text-stone-400">
               {isPdfSearching
                 ? `Scanning ${book?.totalPages || "PDF"} pages...`
                 : pdfSearchResults.length
@@ -996,7 +998,7 @@ export default function PdfViewer({
       </div>
       <div
         ref={shellRef}
-        className={`min-h-[720px] flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
+        className={`min-h-[max(720px,calc(100vh-330px))] flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
         onMouseUp={handleSelectionCapture}
       >
         <div

@@ -150,7 +150,7 @@ export default function Toolbar({
   }, []);
 
   return (
-    <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white/92 p-2 shadow-tool backdrop-blur dark:border-stone-700 dark:bg-stone-900/92">
+    <div className="flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-lg border border-stone-200 bg-white/92 p-2 shadow-tool backdrop-blur xl:justify-start dark:border-stone-700 dark:bg-stone-900/92">
       <div className="flex items-center gap-1 rounded-md bg-stone-100/80 p-1 dark:bg-stone-800/80">
         {toolButtons.map((item) => {
           const Icon = item.icon;
@@ -253,7 +253,7 @@ export default function Toolbar({
         <span className="w-9 text-right tabular-nums">{thickness.toFixed(2)}</span>
       </label>
 
-      <div className="ml-auto flex items-center gap-1 rounded-md border border-stone-200 bg-white p-1 shadow-sm dark:border-stone-700 dark:bg-stone-900">
+      <div className="flex items-center gap-1 rounded-md border border-stone-200 bg-white p-1 shadow-sm xl:ml-auto dark:border-stone-700 dark:bg-stone-900">
         <button className="toolbar-icon" type="button" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={onUndo}>
           <Undo2 className="h-4 w-4" />
         </button>

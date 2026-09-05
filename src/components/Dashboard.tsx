@@ -3141,7 +3141,7 @@ export default function Dashboard() {
               onJumpToPage={changePage}
             />
           )}
-          <section className="flex min-w-0 flex-1 flex-col">
+          <section className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
             <div className="border-b border-stone-200 bg-white/86 p-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/86">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-2">
