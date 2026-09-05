@@ -70,7 +70,6 @@ export default function StudyWorkspacePanel({
     .filter((status) => status.bookId === book?.id)
     .sort((a, b) => a.pageNumber - b.pageNumber);
   const currentStatus = bookStatuses.find((status) => status.pageNumber === currentPage)?.status ?? "not-started";
-  const CurrentStatusIcon = statusIcons[currentStatus];
   const pageAnnotations = annotations.filter((annotation) => annotation.bookId === book?.id && annotation.pageNumber === currentPage);
   const strokeCount = pageAnnotations.filter((annotation) => annotation.type === "stroke").length;
   const highlightCount = pageAnnotations.filter((annotation) => annotation.type === "highlight").length;
@@ -241,22 +240,8 @@ export default function StudyWorkspacePanel({
   }
 
   return (
-    <aside className="max-h-[520px] w-full shrink-0 overflow-y-auto border-t border-stone-200 bg-[#fbf7ee]/92 p-4 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90 xl:max-h-none xl:w-[22rem] xl:border-l xl:border-t-0">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-sage">Study Board</p>
-          <h2 className="mt-1 text-xl font-black text-stone-950 dark:text-stone-50">Page {currentPage}</h2>
-        </div>
-        <div
-          title={`Current page status: ${PAGE_STATUS_LABELS[currentStatus]}`}
-          className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-black shadow-sm ${PAGE_STATUS_STYLES[currentStatus]}`}
-        >
-          <CurrentStatusIcon className="h-3.5 w-3.5" />
-          {PAGE_STATUS_LABELS[currentStatus]}
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-3 gap-2">
+    <aside className="h-full w-full overflow-y-auto bg-[#fbf7ee]/92 p-4 backdrop-blur dark:bg-stone-950/90">
+      <div className="grid grid-cols-3 gap-2">
         <StatTile label="Notes" value={pageNotes.length} />
         <StatTile label="Ink" value={strokeCount} />
         <StatTile label="Marks" value={highlightCount} />

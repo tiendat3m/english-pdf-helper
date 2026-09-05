@@ -28,7 +28,8 @@ import {
   Star,
   Target,
   TrendingUp,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import PdfUploader from "./PdfUploader";
 import PdfSidebar from "./PdfSidebar";
@@ -383,7 +384,10 @@ function readStoredWorkspaceSession(workspaceKey: string): WorkspaceSession | nu
     if (!parsed || typeof parsed !== "object") {
       return null;
     }
-    return parsed;
+    return {
+      ...parsed,
+      workspaceMode: "focus"
+    };
   } catch {
     return null;
   }
@@ -424,7 +428,7 @@ function createWorkspaceSession(editor: EditorState, isWorkspaceOpen: boolean): 
     activeBookId: editor.activeBookId,
     currentPage: editor.currentPage,
     zoom: editor.zoom,
-    workspaceMode: editor.workspaceMode,
+    workspaceMode: "focus",
     sidebarCollapsed: editor.sidebarCollapsed,
     isWorkspaceOpen
   };
@@ -3114,7 +3118,7 @@ export default function Dashboard() {
       )}
 
       {editor.activeTab === "learn" && isWorkspaceOpen && (
-        <main className="flex h-[calc(100vh-73px)] min-h-[680px] flex-col lg:flex-row">
+        <main className="flex min-h-[calc(100vh-73px)] flex-col lg:flex-row">
           {!editor.sidebarCollapsed && (
             <PdfSidebar
               books={activeBooks}
@@ -3174,7 +3178,7 @@ export default function Dashboard() {
                     <div className="truncate text-sm font-bold text-stone-950 dark:text-stone-50">{activeBook?.title ?? "No book selected"}</div>
                     <div className="text-xs text-stone-500 dark:text-stone-400">
                       {isScratchOpen ? "Listening scratch open" : `Page ${editor.currentPage}`} -{" "}
-                      {editor.workspaceMode === "split" ? "Study board open" : "Focus reading"} -{" "}
+                      {editor.workspaceMode === "split" ? "Board drawer open" : "Reading view"} -{" "}
                       {editor.inputMode === "stylus" ? "stylus locked" : "all input"}
                     </div>
                   </div>
@@ -3185,13 +3189,14 @@ export default function Dashboard() {
                     onClick={() =>
                       setEditor((current) => ({ ...current, workspaceMode: current.workspaceMode === "split" ? "focus" : "split" }))
                     }
+                    title={editor.workspaceMode === "split" ? "Close study board" : "Open study board"}
                     className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black transition ${editor.workspaceMode === "split"
                         ? "bg-ink text-white dark:bg-paper dark:text-stone-950"
                         : "text-stone-600 hover:bg-white dark:text-stone-200 dark:hover:bg-stone-800"
                       }`}
                   >
                     <NotebookPen className="h-4 w-4" />
-                    {editor.workspaceMode === "split" ? "Study board" : "Focus"}
+                    Board
                   </button>
                   <button
                     type="button"
@@ -3260,7 +3265,7 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-            <div className={`flex min-h-0 flex-1 ${editor.workspaceMode === "split" ? "flex-col xl:flex-row" : ""}`}>
+            <div className="relative flex min-h-0 flex-1">
               {isScratchOpen ? (
                 <ScratchPaper
                   annotations={data.annotations}
@@ -3308,17 +3313,35 @@ export default function Dashboard() {
                   }}
                 />
               )}
-              {editor.workspaceMode === "split" && (
-                <StudyWorkspacePanel
-                  book={activeBook}
-                  currentPage={editor.currentPage}
-                  annotations={data.annotations}
-                  vocabulary={activeData.vocabulary}
-                  pageStatuses={data.pageStatuses}
-                  onAddQuickNote={handleAddQuickNote}
-                  onJumpToPage={changePage}
-                  onSetPageStatus={handleSetPageStatus}
-                />
+              {editor.workspaceMode === "split" && !isScratchOpen && (
+                <div className="fixed inset-x-3 bottom-3 top-28 z-40 md:left-auto md:right-4 md:w-[25rem]">
+                  <div className="flex h-full flex-col overflow-hidden rounded-xl border border-stone-200 bg-[#fbf7ee] shadow-paper dark:border-stone-800 dark:bg-stone-950">
+                    <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-3 dark:border-stone-800">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-sage">Study Board</p>
+                        <div className="text-sm font-black text-stone-950 dark:text-stone-50">Page {editor.currentPage}</div>
+                      </div>
+                      <button
+                        type="button"
+                        title="Close study board"
+                        onClick={() => setEditor((current) => ({ ...current, workspaceMode: "focus" }))}
+                        className="grid h-9 w-9 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 shadow-sm transition hover:border-sage hover:text-sage dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <StudyWorkspacePanel
+                      book={activeBook}
+                      currentPage={editor.currentPage}
+                      annotations={data.annotations}
+                      vocabulary={activeData.vocabulary}
+                      pageStatuses={data.pageStatuses}
+                      onAddQuickNote={handleAddQuickNote}
+                      onJumpToPage={changePage}
+                      onSetPageStatus={handleSetPageStatus}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           </section>

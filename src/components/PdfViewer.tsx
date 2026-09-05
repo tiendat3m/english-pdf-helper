@@ -899,7 +899,7 @@ export default function PdfViewer({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-[calc(100vh-185px)] flex-1 flex-col">
       <div className="border-b border-stone-200 bg-white/88 px-4 py-3 backdrop-blur dark:border-stone-800 dark:bg-stone-950/88">
         <div className="mx-auto flex max-w-6xl flex-col gap-3">
           <form
@@ -996,7 +996,7 @@ export default function PdfViewer({
       </div>
       <div
         ref={shellRef}
-        className={`min-h-0 flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
+        className={`min-h-[720px] flex-1 overflow-auto p-6 ${isSpaceDown ? "cursor-grab" : ""}`}
         onMouseUp={handleSelectionCapture}
       >
         <div

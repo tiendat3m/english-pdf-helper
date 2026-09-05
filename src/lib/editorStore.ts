@@ -12,7 +12,7 @@ export const initialEditorState: EditorState = {
   brushStyle: "ballpoint",
   thickness: 1.25,
   theme: "warm",
-  workspaceMode: "split",
+  workspaceMode: "focus",
   sidebarCollapsed: false,
   inputMode: "all",
   aiEnabled: true,
