@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, Loader2, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Loader2, RotateCcw, Search, X } from "lucide-react";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -195,6 +195,7 @@ interface PdfViewerProps {
   onPageChange: (page: number) => void;
   onZoomChange: (zoom: number) => void;
   onDocumentLoaded: (pages: number) => void;
+  onRetryFile: () => Promise<void>;
   onAddAnnotation: (annotation: Annotation) => void;
   onUpdateAnnotation: (annotation: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
@@ -220,6 +221,7 @@ export default function PdfViewer({
   onPageChange,
   onZoomChange,
   onDocumentLoaded,
+  onRetryFile,
   onAddAnnotation,
   onUpdateAnnotation,
   onDeleteAnnotation,
@@ -245,6 +247,7 @@ export default function PdfViewer({
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isDocumentReady, setIsDocumentReady] = useState(false);
+  const [isRetryingFile, setIsRetryingFile] = useState(false);
   const [textItems, setTextItems] = useState<PdfTextItem[]>([]);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -1017,12 +1020,20 @@ export default function PdfViewer({
               willChange: previewScale === 1 ? undefined : "transform"
             }}
           >
-            {book.fileUnavailable ? (
+            {!book.blob.size ? (
               <div className="max-w-md rounded-lg bg-white p-8 text-sm text-rose-600 shadow-tool dark:bg-stone-900 dark:text-rose-200">
-                <div className="font-bold">This PDF file is missing from account storage.</div>
+                <div className="font-bold">{book.fileError === "missing" ? "This PDF has not reached your account storage." : "The PDF could not be downloaded."}</div>
                 <div className="mt-2 text-xs leading-5 text-rose-500 dark:text-rose-200">
-                  Re-import this PDF while signed in to upload the file again. Notes, vocabulary, and progress are still kept in the account database.
+                  {book.fileError === "missing"
+                    ? "Open the app on the device that imported this PDF to finish uploading, or import the same file here. Your notes and progress are kept."
+                    : "Check your connection and try again. Your notes and progress are kept."}
                 </div>
+                <button type="button" disabled={isRetryingFile}
+                  onClick={async () => { setIsRetryingFile(true); try { await onRetryFile(); } finally { setIsRetryingFile(false); } }}
+                  className="mt-4 inline-flex items-center gap-2 rounded-md border border-stone-300 px-3 py-2 font-semibold text-stone-700 disabled:opacity-50 dark:text-stone-200">
+                  <RotateCcw className={`h-4 w-4 ${isRetryingFile ? "animate-spin" : ""}`} />
+                  {isRetryingFile ? "Checking..." : "Retry download"}
+                </button>
               </div>
             ) : pdfFile ? (
               <Document

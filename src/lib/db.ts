@@ -286,18 +286,6 @@ async function getBrowserBookRecoverySources() {
   addSource("guest workspace", getWorkspaceDbName("guest"));
   addSource("legacy workspace", LEGACY_DB_NAME);
 
-  const indexedDbWithDatabases = indexedDB as IDBFactory & {
-    databases?: () => Promise<Array<{ name?: string | null }>>;
-  };
-  const databases = await indexedDbWithDatabases.databases?.().catch(() => []);
-  for (const database of databases ?? []) {
-    const dbName = database.name ?? "";
-    if (!dbName || dbName === LEGACY_DB_NAME || !dbName.startsWith(DB_NAME_PREFIX)) {
-      continue;
-    }
-    addSource("another signed-in workspace", dbName);
-  }
-
   return Array.from(sources, ([dbName, label]) => ({ dbName, label }));
 }
 
@@ -314,27 +302,46 @@ async function writeAppDataToDb(db: IDBPDatabase<IeltsPdfNotesDB>, data: AppData
   ]);
 }
 
-export async function mergeAppDataIntoActiveWorkspace(data: AppData) {
+export async function mergeAppDataIntoActiveWorkspace(data: AppData, workspaceKey = activeWorkspaceKey) {
   if (typeof window === "undefined") {
     return;
   }
 
+  if (workspaceKey !== activeWorkspaceKey) return;
   const db = await getDb();
   const current = await readAppDataFromDb(db);
   const currentBooks = new Map(current.books.map((book) => [book.id, book]));
   const books = data.books.map((book) => {
     const currentBook = currentBooks.get(book.id);
-    if (book.fileUnavailable && currentBook && currentBook.blob.size > 0 && !currentBook.fileUnavailable) {
+    const metadata = currentBook && currentBook.updatedAt > book.updatedAt ? currentBook : book;
+    if (currentBook?.blob.size && !book.blob.size) {
       return {
-        ...book,
+        ...metadata,
         blob: currentBook.blob,
-        fileUnavailable: false
+        fileUnavailable: false,
+        fileError: undefined,
+        pdfUploadPending: Boolean(currentBook.pdfUploadPending || book.fileError === "missing")
       };
     }
-    return book;
+    return { ...metadata, blob: book.blob, fileUnavailable: book.fileUnavailable, fileError: book.fileError,
+      pdfUploadPending: Boolean(currentBook?.pdfUploadPending || book.pdfUploadPending) };
   });
 
   await writeAppDataToDb(db, { ...data, books });
+}
+
+export async function markBookPdfUploaded(workspaceKey: string, book: BookRecord) {
+  const db = await openWorkspaceDb(getWorkspaceDbName(workspaceKey));
+  try {
+    const tx = db.transaction("books", "readwrite");
+    const current = await tx.store.get(book.id);
+    if (current && current.blob.size === book.blob.size && current.fileName === book.fileName) {
+      await tx.store.put({ ...current, pdfUploadPending: false, fileError: undefined, fileUnavailable: false });
+    }
+    await tx.done;
+  } finally {
+    db.close();
+  }
 }
 
 export async function migrateLegacyDataIntoActiveWorkspace() {
@@ -360,7 +367,7 @@ export async function migrateLegacyDataIntoActiveWorkspace() {
     await addActivity({
       type: "book-restored",
       label: "Moved existing local data into this account workspace"
-    });
+    }, activeDb);
     return true;
   } finally {
     legacyDb.close();
@@ -398,7 +405,7 @@ export async function moveWorkspaceDataIntoActiveWorkspace(sourceWorkspaceKey: s
     await addActivity({
       type: "book-restored",
       label: "Moved browser data into this account workspace"
-    });
+    }, activeDb);
     return true;
   } finally {
     sourceDb.close();
@@ -433,7 +440,7 @@ export async function recoverBrowserBookDataIntoActiveWorkspace() {
       await addActivity({
         type: "book-restored",
         label: `Recovered browser PDF books from ${source.label}`
-      });
+      }, activeDb);
       return true;
     } finally {
       sourceDb.close();
@@ -478,6 +485,7 @@ export async function recoverMissingBookFilesIntoActiveWorkspace() {
           fileName: sourceBook.fileName,
           size: sourceBook.size,
           fileUnavailable: false,
+          pdfUploadPending: true,
           updatedAt: nowIso()
         });
       }
@@ -495,7 +503,7 @@ export async function recoverMissingBookFilesIntoActiveWorkspace() {
   await addActivity({
     type: "book-restored",
     label: `Recovered ${recoveredBooks.size} missing PDF file${recoveredBooks.size === 1 ? "" : "s"} from this browser`
-  });
+  }, activeDb);
 
   return recoveredBooks.size;
 }
@@ -581,7 +589,8 @@ export async function restoreAppDataBackup(backup: unknown, options: RestoreBack
         zoom: book.zoom,
         progress: book.progress,
         deletedAt: book.deletedAt,
-        blob: await dataUrlToBlob(book.blobDataUrl)
+        blob: await dataUrlToBlob(book.blobDataUrl),
+        pdfUploadPending: true
       };
       return metadata;
     })
@@ -618,6 +627,7 @@ export async function importBook(file: File) {
     title: stripPdfExtension(file.name),
     fileName: file.name,
     blob: file,
+    pdfUploadPending: true,
     size: file.size,
     createdAt: time,
     updatedAt: time,
@@ -642,8 +652,13 @@ export async function saveBook(book: BookRecord) {
 }
 
 export async function touchBook(book: BookRecord, patch: Partial<BookRecord>) {
-  const next = { ...book, ...patch, updatedAt: nowIso(), lastOpenedAt: nowIso() };
-  await saveBook(next);
+  const db = await getDb();
+  const tx = db.transaction("books", "readwrite");
+  const stored = await tx.store.get(book.id);
+  const next = { ...(stored ?? book), ...patch, updatedAt: nowIso(), lastOpenedAt: nowIso() };
+  next.progress = bookProgress(next);
+  await tx.store.put(next);
+  await tx.done;
   return next;
 }
 
@@ -774,8 +789,8 @@ export async function deleteVocabulary(id: string) {
   await db.delete("vocabulary", id);
 }
 
-export async function addActivity(input: Omit<StudyActivity, "id" | "createdAt">) {
-  const db = await getDb();
+export async function addActivity(input: Omit<StudyActivity, "id" | "createdAt">, targetDb?: IDBPDatabase<IeltsPdfNotesDB>) {
+  const db = targetDb ?? await getDb();
   await db.put("activities", {
     id: uuid(),
     createdAt: nowIso(),

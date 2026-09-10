@@ -7,6 +7,20 @@ interface SupabaseSyncConfig {
   bucket: string;
 }
 
+export class StorageRequestError extends Error {
+  constructor(message: string, public status: number, public code?: string) {
+    super(message);
+    this.name = "StorageRequestError";
+  }
+}
+
+export function isMissingStorageObject(error: unknown) {
+  return error instanceof StorageRequestError && (
+    error.code === "NoSuchKey" || error.code === "not_found" ||
+    error.message === "Object not found" || error.message === "The resource was not found"
+  );
+}
+
 export function getSupabaseSyncConfig(): SupabaseSyncConfig {
   const url = process.env.SUPABASE_URL?.replace(/\/+$/, "");
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -160,7 +174,8 @@ async function signDownloadUrl(config: SupabaseSyncConfig, objectPath: string) {
   );
 
   if (!response.ok) {
-    throw new Error(await readSupabaseError(response));
+    const payload = await response.json().catch(() => ({})) as { message?: string; error?: string; code?: string };
+    throw new StorageRequestError(payload.message || payload.error || "Could not access PDF storage.", response.status, payload.code);
   }
 
   const payload = (await response.json()) as { signedURL?: string; signedUrl?: string };

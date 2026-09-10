@@ -44,6 +44,8 @@ export interface BookRecord {
   progress: number;
   deletedAt?: string;
   fileUnavailable?: boolean;
+  fileError?: "missing" | "download-failed";
+  pdfUploadPending?: boolean;
 }
 
 export interface Point {

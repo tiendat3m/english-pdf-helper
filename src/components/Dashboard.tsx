@@ -812,6 +812,7 @@ export default function Dashboard() {
   const lastAutoPullRemoteSignatureRef = useRef("");
   const accountSyncRetryAfterRef = useRef(0);
   const activeDataWorkspaceRef = useRef<string | null>(null);
+  const fileRetryWorkspaceRef = useRef<string | null>(null);
   const [data, setData] = useState<AppData>(emptyAppData());
   const [editor, setEditor] = useState(initialEditorState);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -876,6 +877,8 @@ export default function Dashboard() {
 
     const workspaceKey = activeDataWorkspaceKey;
     let cancelled = false;
+    const controller = new AbortController();
+    const isCurrentWorkspace = () => !cancelled && activeDataWorkspaceRef.current === workspaceKey;
     activeDataWorkspaceRef.current = workspaceKey;
     setIsLoading(true);
     setIsNavigationReady(false);
@@ -904,31 +907,53 @@ export default function Dashboard() {
       const migrationClaim = localStorage.getItem(LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY);
       const shouldTryLegacyMigration = auth.isAuthEnabled && auth.isSignedIn && auth.userId && !migrationClaim;
       const migrated = shouldTryLegacyMigration ? await migrateLegacyDataIntoActiveWorkspace() : false;
+      if (!isCurrentWorkspace()) return;
       if (migrated) {
         localStorage.setItem(LEGACY_WORKSPACE_MIGRATION_STORAGE_KEY, workspaceKey);
       }
       const movedGuestData =
-        auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await moveWorkspaceDataIntoActiveWorkspace("guest") : false;
+        auth.isAuthEnabled && auth.isSignedIn && auth.userId && (!migrationClaim || migrationClaim === workspaceKey)
+          ? await moveWorkspaceDataIntoActiveWorkspace("guest") : false;
+      if (!isCurrentWorkspace()) return;
       const recoveredBrowserBooks =
-        auth.isAuthEnabled && auth.isSignedIn && auth.userId ? await recoverBrowserBookDataIntoActiveWorkspace() : false;
+        auth.isAuthEnabled && auth.isSignedIn && auth.userId && (migrated || migrationClaim === workspaceKey)
+          ? await recoverBrowserBookDataIntoActiveWorkspace() : false;
+      if (!isCurrentWorkspace()) return;
       let next = await loadAppData();
+      if (!isCurrentWorkspace()) return;
       if (auth.isAuthEnabled && auth.isSignedIn && auth.userId) {
         try {
           setAccountSyncStatus("Loading account database...");
-          const accountData = await loadAccountDatabase(auth);
+          const accountData = await loadAccountDatabase(auth, { cachedBooks: next.books, signal: controller.signal });
+          if (!isCurrentWorkspace()) return;
           let recoveredMissingFiles = 0;
           if (accountData && hasPortableData(accountData)) {
-            await mergeAppDataIntoActiveWorkspace(accountData);
+            await mergeAppDataIntoActiveWorkspace(accountData, workspaceKey);
+            if (!isCurrentWorkspace()) return;
             next = await loadAppData();
-            recoveredMissingFiles = await recoverMissingBookFilesIntoActiveWorkspace();
+            if (!isCurrentWorkspace()) return;
+            recoveredMissingFiles = migrationClaim === workspaceKey || migrated
+              ? await recoverMissingBookFilesIntoActiveWorkspace() : 0;
+            if (!isCurrentWorkspace()) return;
             if (recoveredMissingFiles) {
               next = await loadAppData();
               setAccountSyncStatus(`Recovered ${recoveredMissingFiles} PDF file${recoveredMissingFiles === 1 ? "" : "s"} from this browser.`);
             }
           }
+          if (!isCurrentWorkspace()) return;
           if (hasPortableData(next)) {
-            void saveAccountData(auth, next, { uploadPdfs: true })
-              .then((result) => {
+            const remoteBookIds = new Set(accountData?.books.map((book) => book.id));
+            next.books = next.books.map((book) => ({ ...book,
+              pdfUploadPending: Boolean(book.pdfUploadPending || (!remoteBookIds.has(book.id) && book.blob.size > 0))
+            }));
+            await mergeAppDataIntoActiveWorkspace(next, workspaceKey);
+            if (!isCurrentWorkspace()) return;
+            void saveAccountData(auth, next, { uploadPdfs: true, onlyPendingPdfs: true })
+              .then(async (result) => {
+                if (!isCurrentWorkspace()) return;
+                const refreshed = await loadAppData();
+                if (!isCurrentWorkspace()) return;
+                setData(refreshed);
                 const missingFiles = next.books.filter((book) => book.fileUnavailable).length;
                 if (recoveredMissingFiles) {
                   setAccountSyncStatus(
@@ -938,16 +963,16 @@ export default function Dashboard() {
                   setAccountSyncStatus(accountSaveStatusMessage(result));
                 } else {
                   setAccountSyncStatus(
-                    `${missingFiles} PDF file${missingFiles === 1 ? "" : "s"} need re-import once to restore account storage.`
+                    `${missingFiles} PDF file${missingFiles === 1 ? "" : "s"} unavailable on this device.`
                   );
                 }
               })
-              .catch(reportAccountDatabaseError);
+              .catch((error) => { if (isCurrentWorkspace()) reportAccountDatabaseError(error); });
           } else {
             setAccountSyncStatus("Account database ready.");
           }
         } catch (error) {
-          reportAccountDatabaseError(error);
+          if (isCurrentWorkspace()) reportAccountDatabaseError(error);
         }
       }
       if (cancelled) {
@@ -992,9 +1017,19 @@ export default function Dashboard() {
 
     return () => {
       cancelled = true;
+      controller.abort();
+      if (activeDataWorkspaceRef.current === workspaceKey) activeDataWorkspaceRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDataWorkspaceKey, auth.isAuthEnabled, auth.isSignedIn, auth.userId]);
+
+  useEffect(() => {
+    if (isLoading || !auth.isSignedIn) return;
+    const handleOnline = () => { void retryAccountFiles(); };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, auth.userId, auth.isSignedIn]);
 
   useEffect(() => {
     function handlePopState() {
@@ -1293,9 +1328,53 @@ export default function Dashboard() {
 
   function saveBookToAccount(book: BookRecord, options: { uploadPdf?: boolean; successMessage?: string } = {}) {
     const { successMessage, ...accountOptions } = options;
+    const workspaceKey = activeDataWorkspaceKey;
+    if (options.uploadPdf && auth.isSignedIn) setAccountSyncStatus("Uploading PDF to your account...");
     void upsertAccountBook(auth, book, accountOptions)
-      .then(() => setAccountSyncStatus(successMessage ?? "Account database saved."))
-      .catch(reportAccountDatabaseError);
+      .then(async () => {
+        if (activeDataWorkspaceRef.current !== workspaceKey) return;
+        if (options.uploadPdf) {
+          const next = await loadAppData();
+          if (activeDataWorkspaceRef.current !== workspaceKey) return;
+          setData(next);
+        }
+        if (auth.isSignedIn) setAccountSyncStatus(successMessage ?? "Account database saved.");
+      })
+      .catch((error) => { if (activeDataWorkspaceRef.current === workspaceKey) reportAccountDatabaseError(error); });
+  }
+
+  async function retryAccountFiles() {
+    const workspaceKey = activeDataWorkspaceKey;
+    if (!workspaceKey || !auth.isSignedIn || fileRetryWorkspaceRef.current === workspaceKey) return;
+    fileRetryWorkspaceRef.current = workspaceKey;
+    const isCurrent = () => activeDataWorkspaceRef.current === workspaceKey;
+    try {
+      setAccountSyncStatus("Checking PDF files...");
+      const cached = await loadAppData();
+      if (!isCurrent()) return;
+      const remote = await loadAccountDatabase(auth, { cachedBooks: cached.books });
+      if (!isCurrent() || !remote) return;
+      await mergeAppDataIntoActiveWorkspace(remote, workspaceKey);
+      if (!isCurrent()) return;
+      const next = await loadAppData();
+      if (!isCurrent()) return;
+      setData(next);
+      const pending = next.books.filter((book) => book.pdfUploadPending && book.blob.size > 0);
+      const results = await Promise.allSettled(pending.map((book) => upsertAccountBook(auth, book, { uploadPdf: true })));
+      if (!isCurrent()) return;
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+      const refreshed = await loadAppData();
+      if (!isCurrent()) return;
+      setData(refreshed);
+      setAccountSyncStatus(refreshed.books.some((book) => book.fileUnavailable)
+        ? "Some PDFs are still unavailable. Your notes are kept."
+        : "PDF files ready.");
+    } catch (error) {
+      if (isCurrent()) reportAccountDatabaseError(error);
+    } finally {
+      if (fileRetryWorkspaceRef.current === workspaceKey) fileRetryWorkspaceRef.current = null;
+    }
   }
 
   function saveRecordsToAccount(
@@ -1318,7 +1397,7 @@ export default function Dashboard() {
 
   async function handleImport(file: File) {
     const missingBook = data.books.find(
-      (book) => book.fileUnavailable && (book.fileName === file.name || book.size === file.size)
+      (book) => book.fileUnavailable && book.fileName === file.name && book.size === file.size
     );
     const book = missingBook
       ? await touchBook(missingBook, {
@@ -1326,6 +1405,8 @@ export default function Dashboard() {
         fileName: file.name,
         size: file.size,
         fileUnavailable: false,
+        fileError: undefined,
+        pdfUploadPending: true,
         deletedAt: undefined
       })
       : await importBook(file);
@@ -2798,6 +2879,11 @@ export default function Dashboard() {
                   {accountSyncStatus}
                 </div>
               )}
+            {auth.isSignedIn && data.books.some((book) => book.pdfUploadPending && book.blob.size > 0) && (
+              <div role="status" className="w-full text-xs font-semibold text-amber-700 dark:text-amber-300 sm:text-right">
+                PDF upload pending. Keep this tab open until the upload finishes; the file is saved on this device.
+              </div>
+            )}
             <input
               ref={backupInputRef}
               type="file"
@@ -3283,6 +3369,7 @@ export default function Dashboard() {
                 />
               ) : (
                 <PdfViewer
+                  onRetryFile={retryAccountFiles}
                   book={activeBook}
                   annotations={data.annotations}
                   currentPage={editor.currentPage}

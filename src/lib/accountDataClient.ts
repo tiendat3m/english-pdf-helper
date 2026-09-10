@@ -1,4 +1,5 @@
 import type { Annotation, AppData, BookRecord, BookmarkRecord, PageStatusRecord, VocabularyRecord } from "@/lib/types";
+import { markBookPdfUploaded } from "@/lib/db";
 
 type AccountCollection = "annotations" | "bookmarks" | "pageStatuses" | "vocabulary" | "activities";
 
@@ -10,6 +11,8 @@ interface AccountAuth {
   userId: string | null;
   getToken: () => Promise<string | null>;
 }
+
+const pendingUploads = new Map<string, Promise<void>>();
 
 type AccountBookPayload = Omit<BookRecord, "blob"> & {
   downloadUrl?: string | null;
@@ -49,7 +52,7 @@ async function requestAccountData<T>(auth: AccountAuth, init: RequestInit = {}) 
     return null;
   }
   if (typeof navigator !== "undefined" && !navigator.onLine) {
-    return null;
+    throw new Error("Offline. Changes are kept on this device until reconnect.");
   }
 
   const token = await auth.getToken().catch(() => null);
@@ -57,9 +60,11 @@ async function requestAccountData<T>(auth: AccountAuth, init: RequestInit = {}) 
     ...init,
     cache: "no-store",
     credentials: "same-origin",
+    signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "x-account-user-id": auth.userId!,
       ...init.headers
     }
   });
@@ -85,7 +90,8 @@ async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: str
   const response = await fetch(uploadUrl, {
     method: "PUT",
     headers: { "x-upsert": "true" },
-    body: form
+    body: form,
+    signal: AbortSignal.timeout(180_000)
   });
 
   if (!response.ok) {
@@ -100,29 +106,32 @@ async function uploadPdfToSignedUrl(uploadUrl: string, blob: Blob, fileName: str
   }
 }
 
-async function downloadBookBlob(book: AccountBookPayload) {
-  if (!book.downloadUrl) {
+async function downloadBookBlob(book: AccountBookPayload, cached?: BookRecord, signal?: AbortSignal): Promise<BookRecord> {
+  const { downloadUrl, ...metadata } = book;
+  // A metadata refresh must never discard a usable PDF on this device.
+  if (cached?.blob.size && cached.blob.size === book.size) {
     return {
-      ...book,
-      blob: new Blob([], { type: "application/pdf" }),
-      fileUnavailable: true
+      ...metadata, blob: cached.blob, fileUnavailable: false, fileError: undefined,
+      pdfUploadPending: Boolean(cached.pdfUploadPending || book.fileError === "missing")
     };
   }
-
-  const response = await fetch(book.downloadUrl, { cache: "no-store" });
-  if (!response.ok) {
-    return {
-      ...book,
-      blob: new Blob([], { type: "application/pdf" }),
-      fileUnavailable: true
-    };
+  if (downloadUrl) {
+    try {
+      const response = await fetch(downloadUrl, { cache: "no-store",
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000) });
+      if (!response.ok) throw new Error("PDF download failed.");
+      const blob = await response.blob();
+      if (!blob.size || (book.size > 0 && blob.size !== book.size) || await blob.slice(0, 5).text() !== "%PDF-") {
+        throw new Error("PDF download is incomplete.");
+      }
+      return { ...metadata, blob, fileUnavailable: false, fileError: undefined, pdfUploadPending: false };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+    }
   }
-
-  const blob = await response.blob();
   return {
-    ...book,
-    blob,
-    fileUnavailable: blob.size === 0
+    ...metadata, blob: new Blob([], { type: "application/pdf" }), fileUnavailable: true,
+    fileError: book.fileError ?? "download-failed", pdfUploadPending: false
   };
 }
 
@@ -143,13 +152,18 @@ function toAccountBookPayload(book: BookRecord): Omit<BookRecord, "blob"> {
   };
 }
 
-export async function loadAccountData(auth: AccountAuth) {
-  const payload = await requestAccountData<AccountDataResponse>(auth, { method: "GET" });
+export async function loadAccountData(auth: AccountAuth, options: { cachedBooks?: BookRecord[]; signal?: AbortSignal } = {}) {
+  const payload = await requestAccountData<AccountDataResponse>(auth, { method: "GET", signal: options.signal });
   if (!payload) {
     return null;
   }
 
-  const books = await Promise.all(payload.data.books.map(downloadBookBlob));
+  const cache = new Map(options.cachedBooks?.map((book) => [book.id, book]));
+  const books: BookRecord[] = [];
+  for (const book of payload.data.books) {
+    if (options.signal?.aborted) throw new DOMException("Account changed", "AbortError");
+    books.push(await downloadBookBlob(book, cache.get(book.id), options.signal));
+  }
 
   return {
     ...payload.data,
@@ -158,18 +172,44 @@ export async function loadAccountData(auth: AccountAuth) {
 }
 
 export async function upsertAccountBook(auth: AccountAuth, book: BookRecord, options: { uploadPdf?: boolean } = {}) {
-  const payload = await requestAccountData<AccountMutationResponse>(auth, {
+  if (!canUseAccountData(auth)) return;
+  if (options.uploadPdf) {
+    if (!book.blob.size) throw new Error("This device has no PDF file to upload.");
+    const key = `${auth.userId}:${book.id}`;
+    const existing = pendingUploads.get(key);
+    if (existing) return existing;
+    const upload = uploadAndVerifyAccountBook(auth, book);
+    pendingUploads.set(key, upload);
+    try { await upload; } finally { pendingUploads.delete(key); }
+    return;
+  }
+  await requestAccountData<AccountMutationResponse>(auth, {
     method: "POST",
-    body: JSON.stringify({
-      operation: "upsertBook",
-      book: toAccountBookPayload(book),
-      needsUpload: Boolean(options.uploadPdf)
-    })
+    body: JSON.stringify({ operation: "upsertBook", book: toAccountBookPayload(book), needsUpload: false })
   });
+}
 
-  const uploadUrl = payload?.uploadUrls?.[0]?.uploadUrl;
-  if (options.uploadPdf && uploadUrl && !book.fileUnavailable && book.blob.size > 0) {
-    await uploadPdfToSignedUrl(uploadUrl, book.blob, book.fileName);
+async function uploadAndVerifyAccountBook(auth: AccountAuth, book: BookRecord) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const payload = await requestAccountData<AccountMutationResponse>(auth, {
+        method: "POST",
+        body: JSON.stringify({ operation: "upsertBook", book: toAccountBookPayload(book), needsUpload: true })
+      });
+      const uploadUrl = payload?.uploadUrls?.[0]?.uploadUrl;
+      if (!uploadUrl) throw new Error("Account storage did not provide an upload URL.");
+      await uploadPdfToSignedUrl(uploadUrl, book.blob, book.fileName);
+      const confirmation = await requestAccountData<{ verified: boolean }>(auth, {
+        method: "POST", body: JSON.stringify({ operation: "confirmBookUpload", ids: [book.id] })
+      });
+      if (!confirmation?.verified) throw new Error("PDF upload was not confirmed.");
+      await markBookPdfUploaded(`user_${auth.userId}`, book);
+      return;
+    } catch (error) {
+      console.warn("[account-pdf] upload incomplete", { bookId: book.id, attempt: attempt + 1 });
+      if (attempt === 2 || (typeof navigator !== "undefined" && !navigator.onLine)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+    }
   }
 }
 
@@ -214,11 +254,12 @@ export async function deleteAccountBooks(auth: AccountAuth, ids: string[]) {
   });
 }
 
-export async function saveAccountData(auth: AccountAuth, data: AppData, options: { uploadPdfs?: boolean } = {}): Promise<AccountSaveResult> {
+export async function saveAccountData(auth: AccountAuth, data: AppData, options: { uploadPdfs?: boolean; onlyPendingPdfs?: boolean } = {}): Promise<AccountSaveResult> {
+  if (!canUseAccountData(auth)) return { books: 0, pdfUploads: 0, skippedMissingPdfs: 0 };
   const books = data.books.map(toAccountBookPayload);
-  const uploadableBooks = data.books.filter((book) => !book.fileUnavailable && book.blob.size > 0);
+  const uploadableBooks = data.books.filter((book) => book.blob.size > 0 && (!options.onlyPendingPdfs || book.pdfUploadPending));
   const skippedMissingPdfs = data.books.filter((book) => book.fileUnavailable || book.blob.size === 0).length;
-  const payload = await requestAccountData<AccountMutationResponse>(auth, {
+  const metadataSave = requestAccountData<AccountMutationResponse>(auth, {
     method: "POST",
     body: JSON.stringify({
       operation: "upsertData",
@@ -228,24 +269,17 @@ export async function saveAccountData(auth: AccountAuth, data: AppData, options:
       pageStatuses: data.pageStatuses,
       vocabulary: data.vocabulary,
       activities: data.activities,
-      uploadBookIds: options.uploadPdfs ? uploadableBooks.map((book) => book.id) : []
+      uploadBookIds: []
     })
   });
 
-  let pdfUploads = 0;
-  if (options.uploadPdfs && payload?.uploadUrls?.length) {
-    const bookById = new Map(uploadableBooks.map((book) => [book.id, book]));
-    await Promise.all(
-      payload.uploadUrls.map((upload) => {
-        const book = bookById.get(upload.bookId);
-        if (!book) {
-          return Promise.resolve();
-        }
-        pdfUploads += 1;
-        return uploadPdfToSignedUrl(upload.uploadUrl, book.blob, upload.fileName);
-      })
-    );
-  }
+  const results = await Promise.allSettled([
+    metadataSave,
+    ...(options.uploadPdfs ? uploadableBooks.map((book) => upsertAccountBook(auth, book, { uploadPdf: true })) : [])
+  ]);
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
+  const pdfUploads = options.uploadPdfs ? uploadableBooks.length : 0;
 
   return {
     books: books.length,

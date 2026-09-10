@@ -4,7 +4,8 @@ import {
   createSignedDownloadUrl,
   createSignedUploadUrl,
   deleteStorageObjects,
-  getSupabaseSyncConfig
+  getSupabaseSyncConfig,
+  isMissingStorageObject
 } from "@/lib/supabaseStorageSync";
 import type { Annotation, AppData, BookRecord, BookmarkRecord, PageStatusRecord, VocabularyRecord } from "@/lib/types";
 
@@ -42,7 +43,9 @@ async function getAccountUserId(request: Request) {
   try {
     const session = await auth();
     if (session.userId) {
-      return session.userId;
+      const expectedUserId = request.headers.get("x-account-user-id");
+      if (!expectedUserId || expectedUserId === session.userId) return session.userId;
+      throw new Error("Account changed. Reload before saving.");
     }
   } catch {
     // Fall through to bearer token verification.
@@ -53,6 +56,8 @@ async function getAccountUserId(request: Request) {
     try {
       const payload = await verifyToken(bearerToken, { secretKey: process.env.CLERK_SECRET_KEY });
       if (payload.sub) {
+        const expectedUserId = request.headers.get("x-account-user-id");
+        if (expectedUserId && expectedUserId !== payload.sub) throw new Error("Account changed.");
         return payload.sub;
       }
     } catch {
@@ -253,10 +258,12 @@ export async function GET(request: Request) {
       bookRows.map(async (row) => {
         const book = fromStoredBookRow(row);
         let downloadUrl: string | null = null;
+        let fileError: BookRecord["fileError"];
         try {
           downloadUrl = await createSignedDownloadUrl(config, book.storagePath);
-        } catch {
-          downloadUrl = null;
+        } catch (error) {
+          fileError = isMissingStorageObject(error) ? "missing" : "download-failed";
+          console.warn("[account-pdf] download signing failed", { bookId: book.id, reason: fileError });
         }
         return {
           id: book.id,
@@ -271,7 +278,8 @@ export async function GET(request: Request) {
           zoom: book.zoom,
           progress: book.progress,
           deletedAt: book.deletedAt,
-          downloadUrl
+          downloadUrl,
+          fileError
         };
       })
     );
@@ -312,6 +320,36 @@ export async function POST(request: Request) {
       needsUpload?: boolean;
       uploadBookIds?: string[];
     };
+
+    if (body.operation === "confirmBookUpload" && body.ids?.length === 1) {
+      const bookId = String(body.ids[0]);
+      const rows = await supabaseRest<Record<string, unknown>[]>(
+        `account_books?${userFilter(userId)}&id=eq.${encodeURIComponent(bookId)}&select=*`,
+        { headers: getHeaders() }
+      );
+      if (!rows.length) throw new Error("Book not found in this account.");
+      const book = fromStoredBookRow(rows[0]);
+      const downloadUrl = await createSignedDownloadUrl(getSupabaseSyncConfig(), book.storagePath);
+      const response = await fetch(downloadUrl, {
+        headers: { Range: "bytes=0-4" }, cache: "no-store", signal: AbortSignal.timeout(20_000)
+      });
+      const size = Number(response.headers.get("content-range")?.split("/")[1] ?? response.headers.get("content-length"));
+      const reader = response.body?.getReader();
+      let signature = "";
+      try {
+        while (reader && signature.length < 5) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          signature += new TextDecoder().decode(chunk.value.slice(0, 5 - signature.length));
+        }
+      } finally {
+        await reader?.cancel();
+      }
+      if (!response.ok || size !== book.size || signature !== "%PDF-") {
+        throw new Error("PDF upload could not be verified. The local file is kept for retry.");
+      }
+      return NextResponse.json({ verified: true });
+    }
 
     if (body.operation === "upsertBook" && body.book) {
       await upsertRows("account_books", [toStoredBookRow(userId, body.book)]);
